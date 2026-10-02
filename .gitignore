@@ -8,7 +8,10 @@ foto jpg/
 data/
 outputs/
 exports/
+logs/
+confronto_*.csv
 
 __pycache__/
 *.pyc
+.pytest_cache/
 .claude/
