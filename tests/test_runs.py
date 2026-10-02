@@ -117,6 +117,23 @@ def test_only_runs_made_in_the_same_conditions_are_compared(workspace):
     assert runs.comparable_group([]) == []
 
 
+def test_projects_and_results_go_to_the_work_folder(workspace, tmp_path, monkeypatch):
+    # Programma installato: il codice sta in una cartella, progetti e risultati in un'altra.
+    work = tmp_path / "lavoro"
+    (workspace / config.WORK_FILE).write_text(str(work), encoding="utf-8-sig")
+    assert config._work_dir() == work
+    monkeypatch.setattr(config, "WORK", work)
+    s = Settings(name="prova")
+    s.save()
+    run = runs.new_run("prova", "splatfacto")
+    assert s.scene == work / "data" / "prova" and config.projects() == ["prova"]
+    assert work in run.path.parents and work in run.export_dir.parents
+    assert config.colmap_exe().is_relative_to(workspace)  # gli strumenti restano con il programma
+
+    (workspace / config.WORK_FILE).unlink()
+    assert config._work_dir() == workspace  # senza indicazione: tutto nella cartella del programma
+
+
 def test_missing_components_are_reported(workspace):
     assert config.missing_components() == []
     (workspace / "tools" / "colmap-4.2.1" / "bin" / "colmap.exe").unlink()

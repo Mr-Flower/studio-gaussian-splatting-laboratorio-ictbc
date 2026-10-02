@@ -1,0 +1,76 @@
+name: release
+
+# Costruisce il programma di installazione (Setup) e lo pubblica.
+# - a mano (workflow_dispatch): il Setup resta come artefatto dell'esecuzione, per provarlo;
+# - con un tag vX.Y.Z: il Setup viene anche allegato alla release di quel tag, creata qui.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: python -m pip install pytest psutil "numpy<2" pillow
+      - run: python -m pytest tests -q
+
+      - name: Versione del programma
+        id: versione
+        run: |
+          $versione = (Select-String -Path app\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$versione") {
+            throw "Il tag $env:GITHUB_REF_NAME non corrisponde alla versione $versione del programma."
+          }
+          "numero=$versione" >> $env:GITHUB_OUTPUT
+
+      # I moduli CUDA compilati non stanno nel repository: sono allegati a una release precedente.
+      - name: Moduli CUDA compilati
+        run: |
+          $release = (Select-String -Path installa.ps1 -Pattern "releaseModuli = '(.+)'").Matches[0].Groups[1].Value
+          gh release download $release --pattern "*.whl" --pattern "LICENZE-moduli-compilati.txt" --dir tools\wheels
+          Get-ChildItem tools\wheels
+
+      - name: Inno Setup 6.7.3
+        run: |
+          $setup = "$env:RUNNER_TEMP\innosetup.exe"
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe" -OutFile $setup
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash -ne '9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732') {
+            throw "Il file scaricato di Inno Setup non è quello atteso."
+          }
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS', '/DIR=C:\innosetup' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Installazione di Inno Setup non riuscita ($($p.ExitCode))." }
+
+      - name: Programma di installazione
+        run: |
+          C:\innosetup\ISCC.exe "/DVersione=${{ steps.versione.outputs.numero }}" installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Compilazione del Setup non riuscita." }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GaussianSplatting-Setup-${{ steps.versione.outputs.numero }}
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        run: |
+          python scripts/note_release.py ${{ steps.versione.outputs.numero }} note.md
+          $setup = (Get-Item dist\*.exe).FullName
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $setup --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $setup --title "Studio Gaussian Splatting ${{ steps.versione.outputs.numero }}" --notes-file note.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Pubblicazione della release non riuscita." }

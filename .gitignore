@@ -13,6 +13,11 @@ reports/
 logs/
 confronto_*.csv
 
+# Programma di installazione compilato e file che crea
+dist/
+note.md
+cartella_lavoro.txt
+
 __pycache__/
 *.pyc
 .pytest_cache/

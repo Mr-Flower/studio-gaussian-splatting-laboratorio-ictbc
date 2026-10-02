@@ -1,6 +1,9 @@
 """Percorsi, componenti esterni, metodi disponibili e impostazioni di un progetto.
 
-Layout su disco, relativo alla radice del repository:
+Il programma (codice, ambiente Python, strumenti) sta in ROOT; progetti e risultati stanno nella
+cartella di lavoro WORK, che coincide con ROOT se l'installazione non ne indica un'altra.
+
+Layout della cartella di lavoro:
   data/<progetto>/                      allineamento condiviso da tutti i metodi
   outputs/<progetto>/<metodo>/<data>/   un run di training (nerfstudio) con run.json e metrics.json
   exports/<progetto>/<metodo>_<data>/   modello esportato
@@ -20,6 +23,18 @@ from typing import Dict, List, Optional
 from . import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
+WORK_FILE = "cartella_lavoro.txt"  # scritto dal programma di installazione: una riga con il percorso
+
+
+def _work_dir() -> Path:
+    try:
+        text = (ROOT / WORK_FILE).read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        text = ""
+    return Path(text) if text else ROOT
+
+
+WORK = _work_dir()
 TOOLS = ROOT / "tools"
 VENV_SCRIPTS = Path(sys.executable).parent  # gli eseguibili di nerfstudio dell'ambiente che esegue l'applicazione
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
@@ -119,7 +134,7 @@ class Settings:
 
     @property
     def scene(self) -> Path:
-        return ROOT / "data" / self.name
+        return WORK / "data" / self.name
 
     def save(self) -> None:
         self.scene.mkdir(parents=True, exist_ok=True)
@@ -127,7 +142,7 @@ class Settings:
 
     @classmethod
     def load(cls, name: str) -> Optional["Settings"]:
-        path = ROOT / "data" / name / "project.json"
+        path = WORK / "data" / name / "project.json"
         if not path.exists():
             return None
         try:
@@ -143,7 +158,7 @@ class Settings:
 
 
 def projects() -> List[str]:
-    data = ROOT / "data"
+    data = WORK / "data"
     return sorted(d.name for d in data.iterdir() if d.is_dir()) if data.is_dir() else []
 
 

@@ -14,6 +14,13 @@
   spuntare e la qualità comune a tutti. Da riga di comando: `test --methods`.
 - **Modello di camera automatico**: una camera per sottocartella se le foto sono divise in
   sottocartelle, altrimenti una sola.
+- **Programma di installazione**: la release contiene `GaussianSplatting-Setup-<versione>.exe`, una
+  procedura guidata che copia il programma in `Programmi\Gaussian Splatting`, chiede la cartella
+  di lavoro e l'icona sul desktop, scarica e configura i componenti mostrando l'avanzamento, e
+  registra la disinstallazione. Lo costruisce GitHub Actions e lo allega alla release.
+- **Cartella di lavoro separata**: con il programma installato, progetti e risultati stanno in una
+  cartella scelta dall'utente e non in quella del programma.
+- Icona del programma, anche nella barra delle applicazioni.
 
 ### Cambiamenti che incidono sui risultati
 
@@ -28,8 +35,10 @@
   «metà risoluzione» o «risoluzione piena» avrebbe lavorato a una risoluzione diversa dagli altri
   metodi. Ora la risoluzione gli è imposta. I run fatti con la 0.2.0 alla risoluzione automatica
   (fino a 1600 pixel) non erano interessati.
-- L'installer scarica i moduli compilati dalla release che li contiene, non da quella con il
-  numero di versione del programma.
+- I moduli compilati sono dentro il Setup; `installa.ps1` li scarica, se mancano, dalla release
+  che li contiene e non da quella con il numero di versione del programma.
+- Il limite sulla lunghezza del percorso di installazione passa da 60 a 75 caratteri (misurato sui
+  percorsi più lunghi dei pacchetti installati).
 
 ## 0.2.0 — 2026-10-02
 

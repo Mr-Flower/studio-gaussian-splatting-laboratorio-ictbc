@@ -132,20 +132,29 @@ misure e i grafici prodotti dal report (`reports/<progetto>/`).
 Requisiti: Windows 10/11 a 64 bit; scheda NVIDIA RTX (serie 20, 30, 40 o professionali equivalenti)
 con driver 551.61 o successivo; circa 25 GB liberi. Non servono diritti di amministratore.
 
-1. Scaricare il codice della [release](../../releases) e scompattarlo in una cartella dal percorso
-   breve, ad esempio `C:\StudioGS` (alcuni componenti superano il limite di Windows sui percorsi
-   lunghi se la cartella è annidata in profondità).
-2. Doppio clic su `Installa.bat`.
+1. Scaricare `GaussianSplatting-Setup-<versione>.exe` dalla [release](../../releases) e avviarlo.
+2. Seguire la procedura guidata: licenza, cartella del programma (proposta:
+   `Programmi\Gaussian Splatting` dell'utente), cartella di lavoro per progetti e risultati, icona
+   sul desktop.
 
-L'installazione scarica e configura tutto il necessario nella cartella del programma: Python 3.10,
-PyTorch, nerfstudio e gsplat, i moduli CUDA già compilati allegati alla release (tiny-cuda-nn e i
-moduli del codice Inria), COLMAP, FFmpeg, MeshLab e il codice Inria. Può essere rilanciata: riprende
-da dove si era fermata. Se i moduli compilati non sono scaricabili, il programma funziona comunque,
-senza il metodo Inria e con i metodi NeRF più lenti.
+La procedura copia il programma e poi scarica e configura tutto il necessario, mostrando
+l'avanzamento: Python 3.10, PyTorch, nerfstudio e gsplat, COLMAP, FFmpeg, MeshLab e il codice Inria
+(circa 6 GB, da 10 a 40 minuti). I moduli CUDA già compilati (tiny-cuda-nn e i moduli del codice
+Inria) sono dentro il Setup. Se lo scaricamento si interrompe, «Completa o ripara l'installazione»
+nel menu Start riprende da dove si era fermato. Il programma si disinstalla da «App installate» di
+Windows; la cartella di lavoro non viene toccata.
+
+Il Setup non è firmato: Windows può mostrare l'avviso «PC protetto da Windows» («Ulteriori
+informazioni», poi «Esegui comunque»). La cartella del programma non deve superare i 75 caratteri
+di percorso, per il limite di Windows sui percorsi lunghi: la procedura lo verifica.
+
+In alternativa, dal codice sorgente: scompattare il repository in una cartella dal percorso breve e
+fare doppio clic su `Installa.bat`; il programma si avvia poi con `Avvia.bat` e tiene progetti e
+risultati nella propria cartella.
 
 ## Uso
 
-Doppio clic su `Avvia.bat` (o sul collegamento creato sul desktop). Basta indicare la cartella
+Si avvia dall'icona sul desktop o dal menu Start. Basta indicare la cartella
 delle foto, scegliere il metodo dal menu e premere «Crea il modello 3D»: allineamento, risoluzione,
 valutazione ed esportazione sono impostati dal programma per la resa migliore che il computer regge.
 
@@ -189,6 +198,9 @@ con centinaia di foto servono molte ore.
 
 ## Dove finiscono i risultati
 
+Nella cartella di lavoro scelta durante l'installazione (voce «Cartella di lavoro» del menu Start);
+con l'installazione dal codice sorgente, nella cartella del programma.
+
 ```
 data\<progetto>\                      allineamento, comune a tutti i metodi
     project.json, photos.json         impostazioni; analisi delle foto ed esclusioni
@@ -212,6 +224,10 @@ reports\<progetto>\                   report: index.html, grafici, confronto.csv
 I test coprono l'analisi delle foto, la suddivisione training/test, la lettura dei log, la
 costruzione dei comandi, il registro dei run e i controlli prima dell'avvio; non richiedono la
 scheda grafica. `docs\audit.md` descrive le revisioni del programma e i punti ancora aperti.
+
+Il programma di installazione è descritto in `installer\setup.iss` (Inno Setup) e lo costruisce
+GitHub Actions (`.github\workflows\release.yml`): avviato a mano produce il Setup come artefatto
+dell'esecuzione; con un tag `vX.Y.Z` crea anche la release e vi allega il Setup.
 
 ## Software di terze parti
 

@@ -1,16 +1,18 @@
 # Installa tutto il necessario nella cartella del programma: Python, ambiente con PyTorch e
 # nerfstudio, moduli CUDA gia' compilati, COLMAP, FFmpeg, MeshLab e il codice Inria.
 # Non richiede diritti di amministratore. Puo' essere rilanciato: salta cio' che e' gia' presente.
-# Avvio consigliato: doppio clic su Installa.bat
+# Di norma lo avvia il programma di installazione (Setup); a mano: doppio clic su Installa.bat
 param(
-    [switch]$SenzaCollegamento  # non creare il collegamento sul desktop
+    [switch]$SenzaCollegamento,  # non creare il collegamento sul desktop (lo crea il programma di installazione)
+    [switch]$SoloControlli,      # verifica solo che il computer e la cartella siano adatti, senza installare
+    [string]$Cartella            # cartella da verificare con -SoloControlli (predefinita: quella dello script)
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root = $PSScriptRoot
-Set-Location $root
+if ($SoloControlli -and $Cartella) { $root = $Cartella.TrimEnd('') } else { Set-Location $root }
 
 $repo = 'Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc'
 # Release a cui sono allegati i moduli compilati: non cambiano a ogni versione del programma.
@@ -30,7 +32,10 @@ $wheels = @(
 )
 $driverMinimo = 551.61  # primo driver NVIDIA che supporta CUDA 12.4
 
-function Passo($testo) { Write-Host "`n== $testo" -ForegroundColor Cyan }
+$passi = 6
+$passo = 0
+# Il programma di installazione legge queste righe per mostrare l'avanzamento.
+function Passo($testo) { $script:passo++; Write-Host "`n== [$passo/$passi] $testo" -ForegroundColor Cyan }
 function Avviso($testo) { Write-Host "ATTENZIONE: $testo" -ForegroundColor Yellow }
 
 function Scarica($url, $destinazione) {
@@ -54,9 +59,10 @@ function Esegui($programma, $argomenti, $errore) {
 try {
     Passo "Controlli"
     if (-not [Environment]::Is64BitOperatingSystem) { throw "Serve Windows a 64 bit." }
-    # Alcuni pacchetti Python hanno percorsi interni molto lunghi e Windows, di norma, si ferma a 260 caratteri.
-    if ($root.Length -gt 60) {
-        throw "Il percorso della cartella del programma e' troppo lungo ($($root.Length) caratteri): spostarla in un percorso piu' breve, ad esempio C:\StudioGS, e rilanciare."
+    # Windows, di norma, si ferma a 260 caratteri e i pacchetti Python installati hanno percorsi
+    # interni lunghi fino a 175 caratteri: oltre i 75 della cartella l'installazione fallirebbe.
+    if ($root.Length -gt 75) {
+        throw "Il percorso della cartella del programma e' troppo lungo ($($root.Length) caratteri, massimo 75): sceglierne uno piu' breve, ad esempio C:\GaussianSplatting."
     }
     if (-not (Get-Command nvidia-smi -ErrorAction SilentlyContinue)) {
         throw "Scheda NVIDIA non trovata (manca nvidia-smi). Il programma richiede una scheda NVIDIA con i suoi driver."
@@ -68,7 +74,8 @@ try {
     }
     $liberi = [math]::Round((Get-PSDrive ($root.Substring(0, 1))).Free / 1GB)
     Write-Host "   spazio libero: $liberi GB"
-    if ($liberi -lt 25) { throw "Servono almeno 25 GB liberi sul disco del programma." }
+    if ($liberi -lt 25) { throw "Servono almeno 25 GB liberi sul disco del programma (liberi: $liberi GB)." }
+    if ($SoloControlli) { exit 0 }
 
     Passo "Python 3.10"
     $python = @(
@@ -132,6 +139,6 @@ try {
     exit 0
 } catch {
     Write-Host "`nERRORE: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "L'installazione puo' essere rilanciata: riprende da dove si e' fermata."
+    if (-not $SoloControlli) { Write-Host "L'installazione puo' essere rilanciata: riprende da dove si e' fermata." }
     exit 1
 }

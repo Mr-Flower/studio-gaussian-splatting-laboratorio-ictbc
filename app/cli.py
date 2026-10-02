@@ -158,7 +158,7 @@ def _report(args: argparse.Namespace) -> int:
     if not found:
         print(f"Nessun run per il progetto '{args.project}'.")
         return 1
-    scene = config.ROOT / "data" / args.project
+    scene = config.WORK / "data" / args.project
     for summary in (runs.alignment_summary(scene), runs.mesh_summary(scene)):
         if summary:
             print(summary)

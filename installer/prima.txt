@@ -1,0 +1,18 @@
+﻿Studio Gaussian Splatting crea modelli 3D da fotografie con 3D Gaussian Splatting, NeRF e fotogrammetria classica, e li mette a confronto.
+
+COSA SERVE
+
+- Windows 10 o 11 a 64 bit.
+- Una scheda grafica NVIDIA RTX (serie 20, 30, 40 o professionali equivalenti) con driver 551.61 o successivi.
+- Circa 25 GB liberi sul disco del programma, più lo spazio per i progetti.
+- Una connessione a Internet durante l'installazione.
+
+COSA FA L'INSTALLAZIONE
+
+Dopo aver copiato il programma, scarica e configura i componenti di cui ha bisogno: Python 3.10, PyTorch, nerfstudio, gsplat, COLMAP, FFmpeg, MeshLab e il codice originale del 3D Gaussian Splatting (Inria). Sono circa 6 GB da scaricare: servono da 10 a 40 minuti, secondo la connessione.
+
+Non servono diritti di amministratore: tutto viene installato per l'utente corrente.
+
+LICENZE DEI COMPONENTI
+
+Il programma è distribuito con licenza Apache 2.0. Il codice 3D Gaussian Splatting di Inria e i suoi moduli compilati hanno una licenza propria, che ne permette l'uso solo per ricerca e valutazione non commerciali. Chi usa il metodo «Gaussian splatting originale (Inria)» deve rispettarla.

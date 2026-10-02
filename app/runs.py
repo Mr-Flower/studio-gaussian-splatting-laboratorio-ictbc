@@ -60,7 +60,7 @@ class Run:
 
     @property
     def path(self) -> Path:
-        return config.ROOT / "outputs" / self.project / self.method / self.timestamp
+        return config.WORK / "outputs" / self.project / self.method / self.timestamp
 
     @property
     def config_file(self) -> Path:
@@ -68,7 +68,7 @@ class Run:
 
     @property
     def export_dir(self) -> Path:
-        return config.ROOT / "exports" / self.project / f"{self.method}_{self.timestamp}"
+        return config.WORK / "exports" / self.project / f"{self.method}_{self.timestamp}"
 
     @property
     def export_file(self) -> Optional[Path]:
@@ -112,7 +112,7 @@ class Run:
         recorded = self.info().get("alignment")
         if not recorded:
             return None
-        return recorded == alignment_id(config.ROOT / "data" / self.project)
+        return recorded == alignment_id(config.WORK / "data" / self.project)
 
 
 def comparable_group(found: List[Run]) -> List[Run]:
@@ -139,7 +139,7 @@ def new_run(project: str, method: str) -> Run:
 
 def list_runs(project: str) -> List[Run]:
     """Run con un checkpoint salvato, dal piu' recente."""
-    base = config.ROOT / "outputs" / project
+    base = config.WORK / "outputs" / project
     runs = [Run(project, folder.parent.name, folder.name) for folder in base.glob("*/*") if folder.is_dir()]
     runs = [r for r in runs if r.checkpoint() is not None]
     return sorted(runs, key=lambda r: r.checkpoint().stat().st_mtime, reverse=True)

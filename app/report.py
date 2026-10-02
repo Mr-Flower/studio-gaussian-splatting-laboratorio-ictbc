@@ -242,12 +242,12 @@ def _fmt(value, digits: int = 2) -> str:
 
 
 def build(project: str) -> Path:
-    scene = config.ROOT / "data" / project
+    scene = config.WORK / "data" / project
     entries = collect(project)
     if not entries:
         raise SystemExit("Nessun run valutato sull'allineamento corrente: eseguire training e valutazione.")
     mesh = mesh_entry(scene)
-    out = config.ROOT / "reports" / project
+    out = config.WORK / "reports" / project
     figures = out / "figure"
     figures.mkdir(parents=True, exist_ok=True)
     _style()

@@ -391,7 +391,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             steps.append(Step(
                 "train", f"Training — {method.label}",
                 lambda: [config.ns("ns-train"), method.key, "--data", str(scene),
-                         "--output-dir", str(config.ROOT / "outputs"), "--experiment-name", s.name,
+                         "--output-dir", str(config.WORK / "outputs"), "--experiment-name", s.name,
                          "--method-name", method.key,
                          "--timestamp", trained.timestamp, "--max-num-iterations", str(s.iterations),
                          "--viewer.quit-on-train-completion", "True",

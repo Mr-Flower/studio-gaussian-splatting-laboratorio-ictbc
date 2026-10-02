@@ -11,6 +11,7 @@ GB = 2**30
 def workspace(tmp_path, monkeypatch):
     """Radice di progetto finta, con i componenti esterni presenti come file vuoti."""
     monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.setattr(config, "WORK", tmp_path)
     monkeypatch.setattr(config, "TOOLS", tmp_path / "tools")
     monkeypatch.setattr(config, "VENV_SCRIPTS", tmp_path / ".venv" / "Scripts")
     # Memoria del computer e della scheda grafica: fissate, cosi' i test non dipendono dalla macchina.

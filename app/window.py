@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, config, photos, pipeline, progress, runs
-from .config import GROUPS, METHODS, QUALITIES, ROOT, Settings
+from .config import GROUPS, METHODS, QUALITIES, Settings
 from .runner import STOPPED, Runner, clean, kill_tree, process_environment
 from .runs import Run
 
@@ -465,7 +465,7 @@ class MainWindow(QMainWindow):
         self._update_notes()
 
     def _browse(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Cartella delle foto", self.photos.text() or str(ROOT))
+        folder = QFileDialog.getExistingDirectory(self, "Cartella delle foto", self.photos.text() or str(config.WORK))
         if folder:
             self.photos.setText(folder)
 
@@ -721,7 +721,7 @@ class MainWindow(QMainWindow):
             self.tabs.setCurrentWidget(self.compare_tab)
         self.show_result_when_done = False
         if ok and self.open_report_when_done:
-            report = ROOT / "reports" / self._settings().name / "index.html"
+            report = config.WORK / "reports" / self._settings().name / "index.html"
             if report.exists():
                 open_path(report)
         if not ok and message != STOPPED:
@@ -805,13 +805,13 @@ class MainWindow(QMainWindow):
 
     def _export_csv(self) -> None:
         project = self._settings().name
-        path, _ = QFileDialog.getSaveFileName(self, "Esporta la tabella", str(ROOT / f"confronto_{project}.csv"), "CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Esporta la tabella", str(config.WORK / f"confronto_{project}.csv"), "CSV (*.csv)")
         if path:
             runs.write_csv(project, Path(path))
 
     def _open_folder(self) -> None:
         scene = self._settings().scene
-        open_path(scene if scene.exists() else ROOT)
+        open_path(scene if scene.exists() else config.WORK)
 
     def closeEvent(self, event) -> None:
         if self.runner.running():
