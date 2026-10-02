@@ -57,15 +57,12 @@ PROCESS = {
 
 
 def collect(project: str) -> List[Dict]:
-    """Una voce per metodo: l'ultimo run valutato sull'allineamento corrente."""
+    """Una voce per metodo: l'ultimo run valutato sull'allineamento corrente, a parita' di condizioni."""
     entries = []
-    for run in runs.list_runs(project):
-        method = config.METHODS.get(run.method)
+    known = [run for run in runs.list_runs(project) if run.method in config.METHODS]
+    for run in runs.comparable_group(known):
+        method = config.METHODS[run.method]
         metrics = run.metrics()
-        if method is None or "psnr" not in metrics or run.comparable() is not True:
-            continue
-        if any(e["key"] == method.key for e in entries):
-            continue  # list_runs e' ordinato dal piu' recente
         info = run.info()
         export = run.export_file
         entries.append({
@@ -278,6 +275,12 @@ def build(project: str) -> Path:
             [[_fmt(mesh["train_minutes"], 1), _fmt(mesh["points"]), _fmt(mesh["vertices"]), _fmt(mesh["max_image_size"])]])
         mesh_html += ("<p class='note'>La fotogrammetria non produce immagini da nuovi punti di vista, quindi non ha "
                       "PSNR, SSIM e LPIPS: il confronto con gli altri metodi su quel piano non è possibile.</p>")
+    included = {e["key"] for e in entries}
+    left_out = sorted({config.METHODS[run.method].label for run in runs.list_runs(project)
+                       if run.method in config.METHODS and run.method not in included
+                       and run.comparable() is True and "psnr" in run.metrics()})
+    left_out_html = ("<p class='note'>Non inclusi, perché allenati con risoluzione o numero di iterazioni diversi: "
+                     + html.escape("; ".join(left_out)) + ".</p>") if left_out else ""
     views_html = "".join(f"<img src='figure/{p.name}' alt='Vista di test a confronto'>" for p in strips)
     versions = first["info"].get("versions", {})
     conditions = _table(["Condizione", "Valore"], [
@@ -313,6 +316,7 @@ con lo stesso codice sulle viste escluse dal training.</p>
 <p class="note">Il tempo di training è la durata dell'intero comando, caricamento dei dati incluso. La velocità di rendering
 è misurata sulle viste di test, alla risoluzione indicata sotto. La tabella completa di tutti i run è in
 <a href="confronto.csv">confronto.csv</a>.</p>
+{left_out_html}
 {mesh_html}
 {"<h2>Viste di test a confronto</h2>" + views_html if strips else ""}
 <h2>Differenze di processo</h2><div class="scroll">{process}</div>

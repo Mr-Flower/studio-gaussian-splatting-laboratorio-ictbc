@@ -44,7 +44,7 @@ ricerca o l'affidabilità, **B** = qualità del codice e dell'interfaccia.
 
 | # | Gravità | Problema | Correzione |
 |---|---|---|---|
-| 22 | M | Nessun test automatico. | Test automatici (51 alla versione 0.2.0) sui parser dei log, sulla costruzione dei comandi, sul registro dei run e sui controlli; eseguiti a ogni push con GitHub Actions. |
+| 22 | M | Nessun test automatico. | Test automatici (51 alla versione 0.2.0, 64 alla 0.3.0) sui parser dei log, sulla costruzione dei comandi, sul registro dei run e sui controlli; eseguiti a ogni push con GitHub Actions. |
 | 23 | B | Un unico file per finestra, esecuzione e logica. | Moduli separati: `config`, `progress`, `runs`, `pipeline`, `runner`, `window`, `cli`. |
 | 24 | B | Dipendenze non fissate (`rawpy`, `PySide6`), nessun numero di versione. | Versioni fissate in `requirements.txt`; versione dell'applicazione in `app/__init__.py`. |
 
@@ -63,7 +63,23 @@ Riguarda la validità del confronto, dopo l'aggiunta del gaussian splatting orig
 | 32 | M | L'installazione richiedeva di scaricare a mano cinque componenti e, per tiny-cuda-nn e il codice Inria, un compilatore C++ e CUDA Toolkit. | Installazione automatica con moduli già compilati. |
 | 33 | B | Il pulsante del viewer non riconosceva l'indirizzo scritto da `ns-viewer`. | Riconosciuti entrambi i formati. |
 
+## Terza revisione (versione 0.3.0)
+
+Riguarda l'uso da parte di chi non conosce i metodi, e due difetti emersi nel rivedere la scelta
+della risoluzione.
+
+| # | Gravità | Problema | Correzione |
+|---|---|---|---|
+| 34 | M | Per ottenere un modello bisognava spuntare metodi e passi e scegliere iterazioni e risoluzione: troppe decisioni per chi vuole solo il risultato. | Un menu per il metodo e un pulsante; il resto è deciso dal programma, con la qualità massima come punto di partenza. |
+| 35 | M | La risoluzione automatica era limitata a 1600 pixel anche quando il computer ne reggeva di più. | Si sceglie la risoluzione più alta con cui le foto entrano in memoria, calcolata per ogni metodo da quanta memoria occupa una foto. |
+| 36 | A | Oltre i 1600 pixel di larghezza il codice Inria riduce le foto da solo: scegliendo una risoluzione più alta avrebbe lavorato in condizioni diverse dagli altri metodi senza segnalarlo. | La risoluzione è imposta in modo esplicito anche al codice Inria. |
+| 37 | A | Il report prendeva l'ultimo run di ogni metodo, anche se fatti a risoluzioni o iterazioni diverse. | Entrano nel report solo i run fatti nelle stesse condizioni; gli altri sono elencati come esclusi. |
+| 38 | B | Il test confrontava sempre tutti i metodi installati. | I metodi del test si scelgono. |
+
 ## Punti aperti
+
+- **Stima della memoria**: la risoluzione massima è scelta da una stima (byte per pixel di ogni
+  programma, metà della memoria disponibile), verificata su un solo computer e un solo set di foto.
 
 - **Metriche geometriche**: il confronto misura la qualità delle immagini sintetizzate, non
   l'accuratezza della geometria. La mesh fotogrammetrica non ha quindi metriche confrontabili con

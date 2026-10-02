@@ -13,7 +13,8 @@ $root = $PSScriptRoot
 Set-Location $root
 
 $repo = 'Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc'
-$versione = (Select-String -Path "$root\app\__init__.py" -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+# Release a cui sono allegati i moduli compilati: non cambiano a ogni versione del programma.
+$releaseModuli = 'v0.2.0'
 $pythonUrl = 'https://www.python.org/ftp/python/3.10.11/python-3.10.11-amd64.exe'
 $colmapUrl = 'https://github.com/colmap/colmap/releases/download/4.2.1/colmap-x64-windows-cuda.zip'
 $ffmpegUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
@@ -96,7 +97,7 @@ try {
     foreach ($nome in $wheels) {
         $file = Join-Path $cartellaWheel $nome
         try {
-            if (-not (Test-Path $file)) { Scarica "https://github.com/$repo/releases/download/v$versione/$nome" $file }
+            if (-not (Test-Path $file)) { Scarica "https://github.com/$repo/releases/download/$releaseModuli/$nome" $file }
             Esegui $py @('-m', 'pip', 'install', '--quiet', '--no-deps', $file) "installazione non riuscita"
         } catch {
             Remove-Item $file -ErrorAction SilentlyContinue -Confirm:$false

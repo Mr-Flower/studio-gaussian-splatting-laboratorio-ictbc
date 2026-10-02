@@ -77,6 +77,46 @@ def test_settings_round_trip_and_legacy_format(workspace):
     assert Settings.load("inesistente") is None
 
 
+def test_quality_levels_set_iterations_and_resolution(workspace):
+    s = Settings(name="prova")
+    assert s.quality == "massima" and (s.iterations, s.downscale, s.max_side) == (30000, 0, 0)
+    assert s.camera == "auto"
+    s.set_quality("bozza")
+    assert s.quality == "bozza" and (s.iterations, s.max_side) == (7000, 800)
+    s.iterations = 1234  # impostazioni scelte a mano
+    assert s.quality is None
+    s.set_quality("alta")
+    s.downscale = 2
+    assert s.quality is None
+
+
+def test_only_runs_made_in_the_same_conditions_are_compared(workspace):
+    scene = workspace / "data" / "prova"
+    scene.mkdir(parents=True)
+    (scene / "transforms.json").write_text("allineamento")
+
+    def trained(method, timestamp, downscale, iterations=30000, evaluated=True, age=0):
+        run_dir = make_run(workspace, "prova", method, timestamp)
+        os.utime(next((run_dir / "nerfstudio_models").iterdir()), (10000 - age, 10000 - age))
+        runs.update_json(run_dir / runs.RUN_FILE, downscale=downscale, iterations=iterations,
+                         alignment=runs.alignment_id(scene))
+        if evaluated:
+            (run_dir / runs.METRICS_FILE).write_text(json.dumps({"results": {"psnr": 25.0, "width": 1320, "height": 989}}))
+
+    trained("splatfacto", "2026-01-05_000000", downscale=2, age=0)   # creato da solo, a risoluzione piu' alta
+    trained("splatfacto", "2026-01-01_000000", downscale=4, age=4)   # i tre del test
+    trained("nerfacto", "2026-01-02_000000", downscale=4, age=3)
+    trained("splatfacto-big", "2026-01-03_000000", downscale=4, age=2)
+    trained("nerfacto-big", "2026-01-04_000000", downscale=4, iterations=7000, age=1)
+    trained("nerfacto", "2026-01-06_000000", downscale=4, evaluated=False, age=5)
+
+    group = runs.comparable_group(runs.list_runs("prova"))
+    assert sorted((r.method, r.timestamp) for r in group) == [
+        ("nerfacto", "2026-01-02_000000"), ("splatfacto", "2026-01-01_000000"), ("splatfacto-big", "2026-01-03_000000")]
+    assert runs.row(group[0])["resolution"] == "1320 × 989 px"
+    assert runs.comparable_group([]) == []
+
+
 def test_missing_components_are_reported(workspace):
     assert config.missing_components() == []
     (workspace / "tools" / "colmap-4.2.1" / "bin" / "colmap.exe").unlink()

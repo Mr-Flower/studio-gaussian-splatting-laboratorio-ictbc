@@ -1,5 +1,36 @@
 # Registro delle modifiche
 
+## 0.3.0 — 2026-10-02
+
+### Novità
+
+- **Interfaccia più semplice**: il metodo si sceglie da un menu a tendina e «Crea il modello 3D»
+  fa tutto il resto (allineamento se manca, training, valutazione, esportazione). I passi non si
+  spuntano più a mano; le opzioni meno usate sono in «Opzioni avanzate».
+- **Qualità**: quattro livelli (massima, alta, media, bozza). Si parte dalla massima, cioè dalla
+  risoluzione più alta con cui le foto entrano nella memoria del computer; i livelli inferiori
+  servono solo a fare prima. Da riga di comando: `--quality` e `--max-side`.
+- **Test con scelta dei metodi**: «Test: confronta più metodi…» apre l'elenco dei metodi da
+  spuntare e la qualità comune a tutti. Da riga di comando: `test --methods`.
+- **Modello di camera automatico**: una camera per sottocartella se le foto sono divise in
+  sottocartelle, altrimenti una sola.
+
+### Cambiamenti che incidono sui risultati
+
+- **La risoluzione predefinita non è più limitata a 1600 pixel**: è la più alta che entra in
+  memoria per tutti i metodi allenati insieme. Per riavere la regola precedente: qualità «Alta».
+- **Il report confronta solo run fatti nelle stesse condizioni** (risoluzione e iterazioni): prima
+  prendeva l'ultimo run di ogni metodo, anche se a risoluzioni diverse.
+
+### Correzioni
+
+- Metodo Inria: oltre i 1600 pixel di larghezza il codice Inria riduceva le foto da solo, quindi con
+  «metà risoluzione» o «risoluzione piena» avrebbe lavorato a una risoluzione diversa dagli altri
+  metodi. Ora la risoluzione gli è imposta. I run fatti con la 0.2.0 alla risoluzione automatica
+  (fino a 1600 pixel) non erano interessati.
+- L'installer scarica i moduli compilati dalla release che li contiene, non da quella con il
+  numero di versione del programma.
+
 ## 0.2.0 — 2026-10-02
 
 ### Novità

@@ -87,8 +87,11 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
    otto (convenzione di Mip-NeRF 360 e di 3D Gaussian Splatting). L'elenco è scritto nei formati
    letti da nerfstudio e dal codice Inria, e in fase di valutazione si verifica che ogni metodo sia
    stato valutato esattamente su quelle foto.
-4. **Risoluzione.** Lo stesso fattore di riduzione per tutti i metodi; in automatico si dimezza
-   finché il lato maggiore non scende a 1600 pixel o meno.
+4. **Risoluzione.** Lo stesso fattore di riduzione (1, 2, 4 o 8) per tutti i metodi allenati
+   insieme: il più piccolo con cui le foto entrano in memoria per ognuno di essi, contando al più
+   metà della memoria centrale e della scheda grafica. I livelli di qualità inferiori aggiungono un
+   tetto al lato maggiore (1600 o 800 pixel) e riducono le iterazioni. Nel report entrano solo run
+   fatti alla stessa risoluzione e con lo stesso numero di iterazioni.
 5. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
    calcolano PSNR, SSIM [8] e LPIPS [9] (rete AlexNet) con lo stesso codice per tutti i metodi. La
    velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima.
@@ -143,22 +146,36 @@ senza il metodo Inria e con i metodi NeRF più lenti.
 ## Uso
 
 Doppio clic su `Avvia.bat` (o sul collegamento creato sul desktop). Basta indicare la cartella
-delle foto; il resto ha valori predefiniti.
+delle foto, scegliere il metodo dal menu e premere «Crea il modello 3D»: allineamento, risoluzione,
+valutazione ed esportazione sono impostati dal programma per la resa migliore che il computer regge.
 
 | Scheda | Cosa si fa |
 |---|---|
 | **1. Foto** | Si analizzano le foto e si decide quali escludere dall'allineamento. |
-| **2. Elaborazione** | Si scelgono metodi e passi e si avvia. «Test: confronta tutti i metodi» allena, valuta ed esporta tutti i metodi installati e genera il report. Durante il training dei metodi di nerfstudio il risultato si può guardare nel browser. |
-| **3. Confronto dei metodi** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si genera il report e si esporta la tabella in CSV. |
+| **2. Crea il modello** | Si sceglie il metodo dal menu; la qualità parte da «Massima» e si può abbassare per fare prima. «Crea il modello 3D» fa tutto il resto. «Test: confronta più metodi…» fa spuntare i metodi da confrontare, li allena nelle stesse condizioni e apre il report. Durante il training dei metodi di nerfstudio il risultato si può guardare nel browser. |
+| **3. Risultati e confronto** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si genera il report e si esporta la tabella in CSV. |
 
-I passi eseguibili sono: allineamento, training, valutazione, esportazione, fotogrammetria classica
-(mesh) e report. La mesh è molto più lenta degli altri passi: con centinaia di foto servono molte ore.
+| Qualità | Iterazioni | Risoluzione delle foto |
+|---|---|---|
+| Massima (predefinita) | 30.000 | la più alta che entra in memoria |
+| Alta | 30.000 | lato maggiore fino a 1600 px |
+| Media | 15.000 | lato maggiore fino a 1600 px |
+| Bozza veloce | 7.000 | lato maggiore fino a 800 px |
+
+Con più metodi insieme la risoluzione è quella che regge anche il più esigente: il codice Inria e i
+NeRF tengono le foto in memoria in virgola mobile e a parità di computer arrivano a risoluzioni più
+basse di gsplat. In «Opzioni avanzate» si trovano il modello di camera, il tipo di matching, la
+ripetizione dell'allineamento e la fotogrammetria classica (mesh), molto più lenta degli altri passi:
+con centinaia di foto servono molte ore.
 
 ### Riga di comando
 
 ```powershell
 # confronto completo: tutti i metodi, valutazione, esportazione e report
 .venv\Scripts\python -m app.cli test --project arco --photos D:\foto\arco
+
+# confronto tra alcuni metodi, a qualità ridotta
+.venv\Scripts\python -m app.cli test --project arco --methods splatfacto inria-3dgs --quality media
 
 # analisi delle foto, escludendo quelle suggerite
 .venv\Scripts\python -m app.cli analyze --project arco --photos D:\foto\arco --apply

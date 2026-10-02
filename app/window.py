@@ -9,13 +9,13 @@ from typing import Dict, List, Optional
 from PySide6.QtCore import QProcess, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
-    QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
+    QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from . import __version__, config, photos, pipeline, progress, runs
-from .config import GROUPS, METHODS, ROOT, Settings
+from .config import GROUPS, METHODS, QUALITIES, ROOT, Settings
 from .runner import STOPPED, Runner, clean, kill_tree, process_environment
 from .runs import Run
 
@@ -53,6 +53,84 @@ class AnalysisWorker(QThread):
             self.failed.emit(str(exc))
 
 
+def quality_text(s: Settings, methods: List[str]) -> str:
+    """Cosa comporta la qualita' scelta: iterazioni e risoluzione delle foto, con il motivo se e' ridotta."""
+    text = f"{s.iterations:,} iterazioni".replace(",", ".")
+    side = pipeline.image_size(s)
+    if not side:
+        return text + "; la risoluzione delle foto viene scelta quando si indica la cartella."
+    factor, limited_by = pipeline.training_plan(s, methods)
+    if factor == 1:
+        return text + f", foto a risoluzione piena ({side} px di lato)."
+    text += f", foto a {side // factor} px di lato"
+    if limited_by:
+        culprit = f" con «{limited_by}»" if len(methods) > 1 else ""
+        text += f": il massimo che entra nella memoria di questo computer{culprit}"
+    return text + f" (originali: {side} px)."
+
+
+class TestDialog(QDialog):
+    """Scelta dei metodi da mettere a confronto e della qualità comune a tutti."""
+
+    def __init__(self, parent, settings: Settings, quality: Optional[str]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Test: confronto tra metodi")
+        self.settings = settings
+        intro = QLabel(
+            "I metodi spuntati vengono allenati uno dopo l'altro sulle stesse foto, alla stessa risoluzione, e "
+            "valutati con lo stesso calcolo. Alla fine si apre il report con grafici e viste a confronto.")
+        intro.setWordWrap(True)
+        self.checks: Dict[str, QCheckBox] = {}
+        methods_box = QGroupBox("Metodi da confrontare")
+        methods_layout = QVBoxLayout(methods_box)
+        for key, method in config.available_methods().items():
+            check = QCheckBox(method.label)
+            check.setToolTip(method.note)
+            check.setChecked(True)
+            check.toggled.connect(self._update)
+            self.checks[key] = check
+            methods_layout.addWidget(check)
+        self.quality = QComboBox()
+        for q in QUALITIES.values():
+            self.quality.addItem(q.label, q.key)
+        self.quality.setCurrentIndex(max(self.quality.findData(quality), 0))
+        self.quality.currentIndexChanged.connect(self._update)
+        self.note = QLabel("")
+        self.note.setWordWrap(True)
+        self.mesh = QCheckBox("Aggiungi la mesh della fotogrammetria classica (molto lenta)")
+        form = QFormLayout()
+        form.addRow("Qualità", self.quality)
+        form.addRow("", self.note)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Avvia il test")
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Annulla")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout = QVBoxLayout(self)
+        layout.addWidget(intro)
+        layout.addWidget(methods_box)
+        layout.addLayout(form)
+        layout.addWidget(self.mesh)
+        layout.addWidget(self.buttons)
+        self.setMinimumWidth(640)
+        self._update()
+
+    def methods(self) -> List[str]:
+        return [key for key, check in self.checks.items() if check.isChecked()]
+
+    def chosen(self) -> Settings:
+        """Le impostazioni del progetto con i metodi e la qualità scelti qui."""
+        s = Settings(**{**vars(self.settings), "methods": self.methods()})
+        s.set_quality(self.quality.currentData())
+        return s
+
+    def _update(self) -> None:
+        methods = self.methods()
+        enough = len(methods) >= 2
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(enough)
+        self.note.setText(quality_text(self.chosen(), methods) if enough else "Spunta almeno due metodi.")
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -67,6 +145,8 @@ class MainWindow(QMainWindow):
         self.photo_rows: List[photos.Photo] = []
         self.filling_photos = False
         self.open_report_when_done = False
+        self.show_result_when_done = False
+        self.custom_quality = (30000, 0, 0)  # iterazioni, fattore, lato massimo di un progetto impostato a mano
         self.step_text = self.step_percent = self.step_detail = ""
         self.started_at = 0.0
 
@@ -76,8 +156,8 @@ class MainWindow(QMainWindow):
         self._build_compare_tab()
         self.tabs = QTabWidget()
         self.tabs.addTab(self.photos_tab, "1. Foto")
-        self.tabs.addTab(self.run_tab, "2. Elaborazione")
-        self.tabs.addTab(self.compare_tab, "3. Confronto dei metodi")
+        self.tabs.addTab(self.run_tab, "2. Crea il modello")
+        self.tabs.addTab(self.compare_tab, "3. Risultati e confronto")
         self.tabs.setCurrentWidget(self.run_tab)
         layout = QVBoxLayout()
         layout.addWidget(self.project_box)
@@ -171,61 +251,65 @@ class MainWindow(QMainWindow):
         self.photos_tab.setLayout(layout)
 
     def _build_run_tab(self) -> None:
-        methods_box = QGroupBox("Metodi da allenare e confrontare")
-        methods_layout = QVBoxLayout(methods_box)
         available = config.available_methods()
-        self.method_checks: Dict[str, QCheckBox] = {}
-        for key, method in METHODS.items():
-            check = QCheckBox(method.label)
-            check.setToolTip(method.note)
-            if key not in available:
-                check.setEnabled(False)
-                check.setText(method.label + "  — non installato")
-            self.method_checks[key] = check
-            methods_layout.addWidget(check)
+        self.method = self._combo([(method.label, key) for key, method in available.items()])
+        self.method_note = QLabel("")
+        self.method_note.setWordWrap(True)
+        self.quality = self._combo([(q.label, q.key) for q in QUALITIES.values()])
+        self.quality.setToolTip("Il programma parte dalla resa migliore che questo computer regge: "
+                                "abbassarla serve solo a fare prima.")
+        self.quality_note = QLabel("")
+        self.quality_note.setWordWrap(True)
+        model_box = QGroupBox("Modello da creare")
+        model_form = QFormLayout(model_box)
+        model_form.addRow("Metodo", self.method)
+        model_form.addRow("", self.method_note)
+        model_form.addRow("Qualità", self.quality)
+        model_form.addRow("", self.quality_note)
+        missing = [method.label for key, method in METHODS.items() if key not in available]
+        if missing:
+            model_form.addRow("", QLabel("Non installati: " + "; ".join(missing)))
 
-        steps_box = QGroupBox("Passi da eseguire")
-        steps_layout = QVBoxLayout(steps_box)
-        self.checks: Dict[str, QCheckBox] = {}
-        for key, label in GROUPS.items():
-            self.checks[key] = QCheckBox(label)
-            steps_layout.addWidget(self.checks[key])
-        self.checks["sfm"].setToolTip("Calcola posizione e parametri delle camere. È comune a tutti i metodi: "
-                                      "rifarlo rende non più confrontabili i training già fatti.")
-        self.checks["train"].setToolTip("Ogni avvio crea un nuovo run: i precedenti non vengono sovrascritti.")
-        self.checks["eval"].setToolTip("Misura la qualità sulle foto tenute fuori dal training (una su otto), "
-                                       "con lo stesso calcolo per tutti i metodi.")
-        self.checks["mesh"].setToolTip("Multi-view stereo e superficie di Poisson. Con centinaia di foto richiede molte ore.")
-        self.checks["report"].setToolTip("Pagina con grafici, tabelle e viste a confronto dei metodi valutati.")
-
-        self.camera = self._combo([("Una sola camera per tutte le foto", "single"),
+        self.camera = self._combo([("Automatico", "auto"),
+                                   ("Una sola camera per tutte le foto", "single"),
                                    ("Una camera per sottocartella", "per_folder"),
                                    ("Una camera per ogni foto (zoom o camere diverse)", "per_image")])
+        self.camera.setToolTip("Automatico: una camera per sottocartella se le foto sono divise in sottocartelle, "
+                               "altrimenti una sola.")
         self.matcher = self._combo([("Foto sparse: confronta tutte le coppie", "exhaustive"),
                                     ("Sequenza ordinata (fotogrammi di un video)", "sequential")])
-        self.iterations = QSpinBox()
-        self.iterations.setRange(100, 500000)
-        self.iterations.setSingleStep(1000)
-        self.iterations.setToolTip("Uguale per tutti i metodi selezionati.")
-        self.downscale = self._combo([("Automatica (lato massimo 1600 px)", 0), ("Metà risoluzione", 2),
-                                      ("Risoluzione piena", 1)])
-        self.downscale.setToolTip("Uguale per tutti i metodi, così i risultati sono confrontabili.")
+        self.redo_alignment = QCheckBox("Rifai l'allineamento delle foto")
+        self.redo_alignment.setToolTip("L'allineamento si fa da solo la prima volta ed è comune a tutti i metodi. "
+                                       "Rifarlo rende non più confrontabili i modelli già creati.")
+        self.mesh_check = QCheckBox("Crea anche la mesh con la fotogrammetria classica (lenta)")
+        self.mesh_check.setToolTip("Multi-view stereo e superficie di Poisson. Con centinaia di foto richiede molte ore.")
         self.mesh_size = self._combo([("1000 px (veloce)", 1000), ("1600 px", 1600), ("2400 px (molto lenta)", 2400)])
-        options_box = QGroupBox("Opzioni")
-        form = QFormLayout(options_box)
+        self.advanced_box = QGroupBox("Opzioni avanzate")
+        form = QFormLayout(self.advanced_box)
         form.addRow("Camere", self.camera)
         form.addRow("Matching", self.matcher)
-        form.addRow("Iterazioni di training", self.iterations)
-        form.addRow("Risoluzione del training", self.downscale)
+        form.addRow("", self.redo_alignment)
+        form.addRow("", self.mesh_check)
         form.addRow("Risoluzione della mesh", self.mesh_size)
+        self.advanced_box.setVisible(False)
+        self.advanced_button = QPushButton("Opzioni avanzate ▸")
+        self.advanced_button.setCheckable(True)
+        self.advanced_button.setFlat(True)
+        self.advanced_button.toggled.connect(self._toggle_advanced)
 
-        self.start_button = QPushButton("Avvia")
+        self.start_button = QPushButton("Crea il modello 3D")
+        self.start_button.setDefault(True)
+        self.start_button.setMinimumHeight(36)
+        self.start_button.setToolTip("Allinea le foto se non è già stato fatto, allena il metodo scelto, lo valuta "
+                                     "e lo esporta.")
         self.start_button.clicked.connect(self._start)
-        self.test_button = QPushButton("Test: confronta tutti i metodi")
-        self.test_button.setToolTip("Seleziona tutti i metodi installati, li allena, li valuta, li esporta e genera "
-                                    "il report con i grafici del confronto.")
+        self.test_button = QPushButton("Test: confronta più metodi…")
+        self.test_button.setMinimumHeight(36)
+        self.test_button.setToolTip("Fa scegliere i metodi, li allena tutti nelle stesse condizioni e genera il "
+                                    "report con i grafici del confronto.")
         self.test_button.clicked.connect(self._start_test)
         self.stop_button = QPushButton("Interrompi")
+        self.stop_button.setMinimumHeight(36)
         self.stop_button.clicked.connect(self._stop)
         self.stop_button.setEnabled(False)
         self.gpu = QLabel("")
@@ -255,24 +339,26 @@ class MainWindow(QMainWindow):
         bottom_row.addWidget(self.train_viewer_button)
         bottom_row.addWidget(folder_button)
         bottom_row.addStretch(1)
+        bottom_row.addWidget(self.advanced_button)
 
-        left = QVBoxLayout()
-        left.addWidget(methods_box)
-        left.addWidget(steps_box)
-        top = QHBoxLayout()
-        top.addLayout(left, 1)
-        top.addWidget(options_box, 1)
         layout = QVBoxLayout()
-        layout.addLayout(top)
+        layout.addWidget(model_box)
         layout.addLayout(run_row)
         layout.addLayout(status_row)
         layout.addWidget(self.bar)
         layout.addWidget(self.log, 1)
         layout.addLayout(bottom_row)
+        layout.addWidget(self.advanced_box)
         self.run_tab = QWidget()
         self.run_tab.setLayout(layout)
+        self.method.currentIndexChanged.connect(self._update_notes)
+        self.quality.currentIndexChanged.connect(self._update_notes)
         # Bloccati durante l'elaborazione.
-        self.inputs = [self.project_box, methods_box, steps_box, options_box, self.photos_tab]
+        self.inputs = [self.project_box, model_box, self.advanced_box, self.photos_tab]
+
+    def _toggle_advanced(self, shown: bool) -> None:
+        self.advanced_box.setVisible(shown)
+        self.advanced_button.setText("Opzioni avanzate ▾" if shown else "Opzioni avanzate ▸")
 
     def _build_compare_tab(self) -> None:
         self.table = QTableWidget(0, len(runs.COLUMNS))
@@ -325,25 +411,42 @@ class MainWindow(QMainWindow):
 
     # --- campi <-> impostazioni
     def _settings(self) -> Settings:
-        return Settings(
+        s = Settings(
             name=self.name.currentText().strip(), photos=self.photos.text().strip(),
             camera=self.camera.currentData(), matcher=self.matcher.currentData(),
-            methods=[key for key, check in self.method_checks.items() if check.isChecked() and check.isEnabled()],
-            iterations=self.iterations.value(), downscale=self.downscale.currentData(),
+            methods=[self.method.currentData()] if self.method.count() else [],
             mesh_size=self.mesh_size.currentData(),
         )
+        if self.quality.currentData() in QUALITIES:
+            s.set_quality(self.quality.currentData())
+        else:
+            s.iterations, s.downscale, s.max_side = self.custom_quality
+        return s
 
     def _valid_project(self) -> bool:
         return bool(config.PROJECT_NAME.fullmatch(self.name.currentText().strip()))
 
     def _apply(self, s: Settings) -> None:
         self.photos.setText(s.photos)
-        for combo, value in ((self.camera, s.camera), (self.matcher, s.matcher),
-                             (self.downscale, s.downscale), (self.mesh_size, s.mesh_size)):
+        for combo, value in ((self.camera, s.camera), (self.matcher, s.matcher), (self.mesh_size, s.mesh_size),
+                             (self.method, next((m for m in s.methods if self.method.findData(m) >= 0), None))):
             combo.setCurrentIndex(max(combo.findData(value), 0))
-        self.iterations.setValue(s.iterations)
-        for key, check in self.method_checks.items():
-            check.setChecked(key in s.methods and check.isEnabled())
+        # Impostazioni scelte a mano (da riga di comando): restano disponibili come voce in più.
+        custom = self.quality.findData("personalizzata")
+        if custom >= 0:
+            self.quality.removeItem(custom)
+        if s.quality is None:
+            self.custom_quality = (s.iterations, s.downscale, s.max_side)
+            self.quality.addItem("Personalizzata (impostata nel progetto)", "personalizzata")
+        self.quality.setCurrentIndex(max(self.quality.findData(s.quality or "personalizzata"), 0))
+        self.redo_alignment.setChecked(False)
+        self.mesh_check.setChecked(False)
+
+    def _update_notes(self) -> None:
+        method = METHODS.get(self.method.currentData())
+        self.method_note.setText(method.note if method else "")
+        s = self._settings()
+        self.quality_note.setText(quality_text(s, s.methods))
 
     def _project_changed(self, name: str) -> None:
         saved = Settings.load(name.strip()) if config.PROJECT_NAME.fullmatch(name.strip()) else None
@@ -359,6 +462,7 @@ class MainWindow(QMainWindow):
             self.name.setCurrentText(re.sub(r"[^A-Za-z0-9_-]+", "_", folder.name))
         self.photo_count.setText(f"{config.count_images(text)} immagini trovate" if text else "")
         self._load_photos()
+        self._update_notes()
 
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Cartella delle foto", self.photos.text() or str(ROOT))
@@ -370,11 +474,13 @@ class MainWindow(QMainWindow):
         s = self._settings()
         valid = self._valid_project()
         state = pipeline.state(s) if valid else {"sfm": False, "mesh": False}
-        self.checks["sfm"].setText(GROUPS["sfm"] + ("  — già fatto" if state["sfm"] else ""))
-        self.checks["mesh"].setText(GROUPS["mesh"] + ("  — già fatta" if state["mesh"] else ""))
+        self.redo_alignment.setEnabled(state["sfm"])
+        self.mesh_check.setText("Crea anche la mesh con la fotogrammetria classica (lenta)"
+                                + ("  — già fatta: verrà rifatta" if state["mesh"] else ""))
         if reset_checks:
-            for key, check in self.checks.items():
-                check.setChecked(key in ("train", "eval", "export", "report") or (key == "sfm" and not state["sfm"]))
+            self.redo_alignment.setChecked(False)
+            self.mesh_check.setChecked(False)
+        self._update_notes()
         self.alignment.setText((runs.alignment_summary(s.scene) or ("presente" if state["sfm"] else "non ancora fatto"))
                                if valid else "")
         self._fill_table(s.name if valid else "")
@@ -492,21 +598,35 @@ class MainWindow(QMainWindow):
         self.report_button.setEnabled(idle and any(r.comparable() is True and r.metrics() for r in self.table_runs))
 
     # --- esecuzione
+    def _groups(self, s: Settings, report: bool, mesh: bool) -> List[str]:
+        """Passi da eseguire: l'allineamento solo se manca o se e' stato chiesto di rifarlo."""
+        wanted = {"train", "eval", "export"}
+        if self.redo_alignment.isChecked() or not (self._valid_project() and pipeline.state(s)["sfm"]):
+            wanted.add("sfm")
+        if mesh:
+            wanted.add("mesh")
+        if report:
+            wanted.add("report")
+        return [group for group in GROUPS if group in wanted]
+
     def _start_test(self) -> None:
-        for check in self.method_checks.values():
-            check.setChecked(check.isEnabled())
-        state = pipeline.state(self._settings()) if self._valid_project() else {"sfm": False}
-        for key, check in self.checks.items():
-            if key != "mesh":  # la mesh resta una scelta esplicita: e' di gran lunga il passo piu' lento
-                check.setChecked(key != "sfm" or not state["sfm"])
-        self._start()
+        if len(config.available_methods()) < 2:
+            QMessageBox.warning(self, "Test", "Per un confronto servono almeno due metodi installati.")
+            return
+        s = self._settings()
+        dialog = TestDialog(self, s, s.quality)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._confirm_and_launch(dialog.chosen(), report=True, mesh=dialog.mesh.isChecked())
+
+    def _start(self) -> None:
+        self._confirm_and_launch(self._settings(), report=False, mesh=self.mesh_check.isChecked())
 
     def _make_report(self) -> None:
         self._launch(self._settings(), ["report"])
 
-    def _start(self) -> None:
-        s = self._settings()
-        groups = [key for key, check in self.checks.items() if check.isChecked()]
+    def _confirm_and_launch(self, s: Settings, report: bool, mesh: bool) -> None:
+        groups = self._groups(s, report, mesh)
         error = pipeline.validate(s, groups)
         if error:
             QMessageBox.warning(self, "Impossibile avviare", error)
@@ -514,8 +634,7 @@ class MainWindow(QMainWindow):
         if "sfm" in groups and pipeline.state(s)["sfm"] and not confirm(
                 self, "Rifare l'allineamento?",
                 f"Il progetto «{s.name}» ha già un allineamento.\n\nRifarlo richiede tempo e rende non più "
-                "confrontabili (né visualizzabili) i training già fatti; anche la mesh esistente viene cancellata.\n\n"
-                "Per allenare altri metodi sullo stesso allineamento basta togliere la spunta da «Allineamento».\n\n"
+                "confrontabili (né visualizzabili) i modelli già creati; anche la mesh esistente viene cancellata.\n\n"
                 "Rifare comunque l'allineamento?"):
             return
         if "mesh" in groups and config.count_images(s.photos) > 150 and s.mesh_size > 1000 and not confirm(
@@ -523,6 +642,7 @@ class MainWindow(QMainWindow):
                 f"Con {config.count_images(s.photos)} foto a {s.mesh_size} px la mesh può richiedere molte ore "
                 "(anche più di un giorno). Continuare?"):
             return
+        self.show_result_when_done = not report
         self._launch(s, groups)
 
     def _launch(self, s: Settings, groups: List[str]) -> None:
@@ -594,6 +714,12 @@ class MainWindow(QMainWindow):
         self.bar.setValue(1000 if ok else 0)
         self._refresh()
         self.status.setText("Completato." if ok else message)
+        if ok:
+            self.redo_alignment.setChecked(False)
+        if ok and self.show_result_when_done and self.table_runs:
+            self.table.selectRow(0)  # il run appena creato: la tabella e' ordinata dal piu' recente
+            self.tabs.setCurrentWidget(self.compare_tab)
+        self.show_result_when_done = False
         if ok and self.open_report_when_done:
             report = ROOT / "reports" / self._settings().name / "index.html"
             if report.exists():

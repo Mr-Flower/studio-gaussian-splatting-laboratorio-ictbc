@@ -115,6 +115,24 @@ class Run:
         return recorded == alignment_id(config.ROOT / "data" / self.project)
 
 
+def comparable_group(found: List[Run]) -> List[Run]:
+    """Tra run valutati sull'allineamento corrente, quelli confrontabili tra loro: uno per metodo.
+
+    Run a risoluzione o numero di iterazioni diversi non si confrontano. Si prende il gruppo di
+    condizioni uguali che copre piu' metodi (a parita', quello con il run piu' recente) e, per ogni
+    metodo, il suo run piu' recente in quel gruppo. `found` e' ordinato dal piu' recente.
+    """
+    groups: Dict[Any, Dict[str, Run]] = {}
+    for run in found:
+        if "psnr" not in run.metrics() or run.comparable() is not True:
+            continue
+        info = run.info()
+        groups.setdefault((info.get("downscale"), info.get("iterations")), {}).setdefault(run.method, run)
+    if not groups:
+        return []
+    return list(max(groups.values(), key=len).values())  # a parita' vince il primo inserito, cioe' il piu' recente
+
+
 def new_run(project: str, method: str) -> Run:
     return Run(project, method, time.strftime("%Y-%m-%d_%H%M%S"))
 
@@ -158,7 +176,8 @@ def row(run: Run) -> Dict[str, Any]:
         "method": method.label if method else run.method,
         "date": time.strftime("%d/%m/%Y %H:%M", time.localtime(checkpoint.stat().st_mtime)),
         "iterations": info.get("iterations") or run.trained_iterations(),
-        "resolution": "" if downscale is None else ("automatica" if downscale == 0 else f"1/{downscale}"),
+        "resolution": (f"{metrics['width']} × {metrics['height']} px" if "width" in metrics else
+                       "" if downscale is None else ("automatica" if downscale == 0 else f"1/{downscale}")),
         "train_minutes": round(info["train_seconds"] / 60, 1) if "train_seconds" in info else "",
         "psnr": round(metrics["psnr"], 2) if "psnr" in metrics else "",
         "ssim": round(metrics["ssim"], 4) if "ssim" in metrics else "",

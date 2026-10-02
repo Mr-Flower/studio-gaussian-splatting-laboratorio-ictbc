@@ -2,7 +2,9 @@ import struct
 
 import pytest
 
-from app import config
+from app import config, pipeline
+
+GB = 2**30
 
 
 @pytest.fixture
@@ -11,6 +13,8 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ROOT", tmp_path)
     monkeypatch.setattr(config, "TOOLS", tmp_path / "tools")
     monkeypatch.setattr(config, "VENV_SCRIPTS", tmp_path / ".venv" / "Scripts")
+    # Memoria del computer e della scheda grafica: fissate, cosi' i test non dipendono dalla macchina.
+    monkeypatch.setattr(pipeline, "hardware", lambda: (64 * GB, 48 * GB))
     for relative in ("tools/colmap-4.2.1/bin/colmap.exe", "tools/ffmpeg-9.0/bin/ffmpeg.exe"):
         path = tmp_path / relative
         path.parent.mkdir(parents=True)

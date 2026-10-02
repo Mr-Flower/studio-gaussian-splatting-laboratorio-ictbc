@@ -63,6 +63,25 @@ METHODS: Dict[str, Method] = {
     )
 }
 
+@dataclass(frozen=True)
+class Quality:
+    key: str
+    label: str
+    iterations: int
+    max_side: int  # lato massimo delle foto in pixel; 0 = nessun limite oltre alla memoria del computer
+
+
+# Livelli di qualita' del training, dal migliore. Quello predefinito e' il primo.
+QUALITIES: Dict[str, Quality] = {
+    q.key: q
+    for q in (
+        Quality("massima", "Massima (consigliata)", 30000, 0),
+        Quality("alta", "Alta — più veloce", 30000, 1600),
+        Quality("media", "Media", 15000, 1600),
+        Quality("bozza", "Bozza veloce", 7000, 800),
+    )
+}
+
 # Gruppi di passi, nell'ordine di esecuzione.
 GROUPS: Dict[str, str] = {
     "sfm": "Allineamento delle foto (COLMAP)",
@@ -78,12 +97,25 @@ GROUPS: Dict[str, str] = {
 class Settings:
     name: str = ""
     photos: str = ""
-    camera: str = "single"  # single | per_folder | per_image
+    camera: str = "auto"  # auto | single | per_folder | per_image
     matcher: str = "exhaustive"  # exhaustive | sequential
     methods: List[str] = field(default_factory=lambda: ["splatfacto"])
     iterations: int = 30000
-    downscale: int = 0  # 0 = scelta automatica di nerfstudio (lato massimo 1600 px)
+    downscale: int = 0  # fattore di riduzione delle foto; 0 = il piu' piccolo che rispetta max_side e la memoria
+    max_side: int = 0  # con downscale 0: lato massimo in pixel (0 = nessun limite oltre alla memoria)
     mesh_size: int = 1600
+
+    @property
+    def quality(self) -> Optional[str]:
+        """Livello di qualita' corrispondente a queste impostazioni, None se sono state scelte a mano."""
+        if self.downscale:
+            return None
+        return next((q.key for q in QUALITIES.values()
+                     if (q.iterations, q.max_side) == (self.iterations, self.max_side)), None)
+
+    def set_quality(self, key: str) -> None:
+        quality = QUALITIES[key]
+        self.iterations, self.downscale, self.max_side = quality.iterations, 0, quality.max_side
 
     @property
     def scene(self) -> Path:

@@ -13,7 +13,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import psutil
 
@@ -60,13 +60,25 @@ def best_sparse_model(colmap_dir: Path) -> Path:
 
 
 @functools.lru_cache(maxsize=1)
-def gpu_name() -> str:
+def _gpu() -> Tuple[str, int]:
+    """Nome e memoria (in byte) della scheda grafica; ("", 0) se non si riesce a leggerli."""
     try:
-        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
-                             text=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        return out.strip().splitlines()[0].strip()
-    except (OSError, subprocess.SubprocessError, IndexError):
-        return ""
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=10,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        name, megabytes = out.strip().splitlines()[0].rsplit(",", 1)
+        return name.strip(), int(megabytes) * 2**20
+    except (OSError, subprocess.SubprocessError, IndexError, ValueError):
+        return "", 0
+
+
+def gpu_name() -> str:
+    return _gpu()[0]
+
+
+def hardware() -> Tuple[int, int]:
+    """Memoria del computer e della scheda grafica, in byte (0 = non nota)."""
+    return psutil.virtual_memory().total, _gpu()[1]
 
 
 # --- blocco del progetto: una sola elaborazione alla volta per progetto
@@ -136,11 +148,12 @@ def _sfm_steps(s: Settings) -> List[Step]:
     names = photos.kept_images(scene, s.photos)
     excluded = config.count_images(s.photos) - len(names)
     image_list = work / "image_list.txt"
+    camera = camera_mode(s, names)
     camera_flag = {
         "single": "--ImageReader.single_camera",
         "per_folder": "--ImageReader.single_camera_per_folder",
         "per_image": "--ImageReader.single_camera_per_image",
-    }[s.camera]
+    }[camera]
 
     def prepare() -> None:
         shutil.rmtree(work, ignore_errors=True)
@@ -159,7 +172,7 @@ def _sfm_steps(s: Settings) -> List[Step]:
         runs.update_json(scene / runs.ALIGNMENT_FILE, photos=len(names), excluded=excluded,
                          models=len(list((final / "sparse").iterdir())),
                          train_images=len(split["train"]), test_images=len(split["test"]),
-                         camera=s.camera, matcher=s.matcher, **stats.values)
+                         camera=camera, matcher=s.matcher, **stats.values)
 
     # Non si usa il COLMAP integrato in ns-process-data: nerfstudio 1.1.5 passa opzioni
     # (--SiftExtraction.use_gpu) che in COLMAP 4.x non esistono piu'.
@@ -186,26 +199,103 @@ def _sfm_steps(s: Settings) -> List[Step]:
     ]
 
 
-def image_size(scene: Path) -> int:
-    """Lato maggiore, in pixel, delle foto allineate."""
-    transforms = runs.read_json(scene / "transforms.json")
-    first = (transforms.get("frames") or [{}])[0]
-    return max(transforms.get("w") or first.get("w", 0), transforms.get("h") or first.get("h", 0))
+def photo_stats(s: Settings) -> Tuple[int, int, int, int]:
+    """Numero di foto, quante vanno al training, larghezza e altezza in pixel.
 
-
-def training_factor(scene: Path, requested: int) -> int:
-    """Fattore di riduzione delle immagini, uguale per tutti i metodi.
-
-    Con 0 (automatico) si applica la regola di nerfstudio: si dimezza finche' il lato maggiore
-    non scende a 1600 pixel o meno. Il fattore e' sempre passato in modo esplicito ai programmi
-    di training, cosi' metodi diversi lavorano alla stessa risoluzione.
+    Dopo l'allineamento si leggono dal progetto; prima, dalla cartella delle foto (serve a mostrare
+    in anticipo la risoluzione che verra' usata).
     """
-    if requested:
-        return requested
-    factor = 1
-    while image_size(scene) / factor > 1600 and factor < 8:
-        factor *= 2
-    return factor
+    transforms = runs.read_json(s.scene / "transforms.json")
+    frames = transforms.get("frames") or []
+    if frames:
+        count = len(frames)
+        width = transforms.get("w") or max(f.get("w", 0) for f in frames)
+        height = transforms.get("h") or max(f.get("h", 0) for f in frames)
+    else:
+        names = photos.kept_images(s.scene, s.photos) if s.photos and Path(s.photos).is_dir() else []
+        count, width, height = len(names), 0, 0
+        if names:
+            try:
+                from PIL import Image
+                with Image.open(Path(s.photos) / names[0]) as image:
+                    width, height = image.size
+            except (OSError, ValueError):
+                pass
+    train = len(colmap_model.read_split(s.scene).get("train", []))
+    return count, train or count - -(-count // colmap_model.TEST_EVERY), width, height
+
+
+def image_size(s: Settings) -> int:
+    """Lato maggiore, in pixel, delle foto."""
+    return max(photo_stats(s)[2:])
+
+
+# Quota della memoria che le foto possono occupare durante il training: il resto serve al modello,
+# al rendering e al sistema. Riferimento misurato: metodo Inria, 887 foto a 1320 px, 18 GB di foto
+# su 25 GB occupati in tutto, con una scheda da 48 GB.
+MEMORY_SHARE = 0.5
+FACTORS = (1, 2, 4, 8)
+
+
+def photo_bytes(method: Method) -> int:
+    """Byte per pixel con cui il programma di training tiene in memoria ogni foto."""
+    if method.engine == "inria":
+        return 16  # tre canali in virgola mobile piu' la maschera
+    return 3 if method.family == "gaussian" else 12  # nerfstudio: interi per splatfacto, virgola mobile per i NeRF
+
+
+def photo_placement(method: Method, images: int, train: int, pixels: int) -> Optional[str]:
+    """Dove stanno le foto durante il training ("gpu" o "ram"); None se non entrano in memoria."""
+    ram, vram = hardware()
+    need = images * pixels * photo_bytes(method)
+    on_gpu = not vram or need <= vram * MEMORY_SHARE
+    in_ram = not ram or need <= ram * MEMORY_SHARE
+    # I NeRF di nerfstudio tengono le foto in memoria centrale; splatfacto anche, oltre le 500 foto.
+    wants_gpu = method.engine == "inria" or (method.family == "gaussian" and train <= 500)
+    if wants_gpu and on_gpu:
+        return "gpu"
+    return "ram" if in_ram else None
+
+
+def training_plan(s: Settings, methods: Optional[Iterable[str]] = None) -> Tuple[int, Optional[str]]:
+    """Fattore di riduzione delle foto, uguale per tutti i metodi allenati insieme, e chi lo ha imposto.
+
+    Con un fattore esplicito si usa quello. Altrimenti si sceglie il piu' piccolo (cioe' la
+    risoluzione piu' alta) che rispetta il lato massimo richiesto e con cui le foto entrano in
+    memoria per ognuno dei metodi. Il secondo valore e' il nome del metodo che ha impedito una
+    risoluzione piu' alta per limiti di memoria, None se la memoria non ha limitato la scelta.
+    """
+    if s.downscale:
+        return s.downscale, None
+    chosen = [METHODS[m] for m in (s.methods if methods is None else methods) if m in METHODS]
+    images, train, width, height = photo_stats(s)
+    limited_by = None
+    for factor in FACTORS:
+        if s.max_side and max(width, height) / factor > s.max_side:
+            continue
+        pixels = (width // factor) * (height // factor)
+        too_big = next((m for m in chosen if photo_placement(m, images, train, pixels) is None), None)
+        if too_big is None:
+            return factor, limited_by
+        limited_by = too_big.label
+    return FACTORS[-1], limited_by
+
+
+def training_factor(s: Settings, methods: Optional[Iterable[str]] = None) -> int:
+    return training_plan(s, methods)[0]
+
+
+def _placement(s: Settings, method: Method) -> Optional[str]:
+    images, train, width, height = photo_stats(s)
+    factor = training_factor(s)
+    return photo_placement(method, images, train, (width // factor) * (height // factor))
+
+
+def camera_mode(s: Settings, names: List[str]) -> str:
+    """Con «auto»: una camera per sottocartella se le foto sono divise in sottocartelle, altrimenti una sola."""
+    if s.camera != "auto":
+        return s.camera
+    return "per_folder" if len({name.rpartition("/")[0] for name in names}) > 1 else "single"
 
 
 def inria_dataset(scene: Path, factor: int) -> Path:
@@ -217,14 +307,14 @@ def _inria_prepare_step(s: Settings) -> Step:
     scene = s.scene
 
     def dataset() -> Path:
-        return inria_dataset(scene, training_factor(scene, s.downscale))
+        return inria_dataset(scene, training_factor(s))
 
     def command() -> Optional[List[str]]:
         target = dataset()
         if (target / "alignment.txt").exists() and (target / "alignment.txt").read_text() == runs.alignment_id(scene):
             return None  # gia' pronta per questo allineamento
         shutil.rmtree(target, ignore_errors=True)
-        size = round(image_size(scene) / training_factor(scene, s.downscale))
+        size = round(image_size(s) / training_factor(s))
         return [str(config.colmap_exe()), "image_undistorter", "--image_path", s.photos,
                 "--input_path", str(best_sparse_model(scene / "colmap")), "--output_path", str(target),
                 "--output_type", "COLMAP", "--max_image_size", str(size)]
@@ -275,7 +365,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
         def record_training(seconds: float) -> None:
             split = colmap_model.read_split(scene)
             trained.update(method=method.key, family=method.family, engine=method.engine, iterations=s.iterations,
-                           downscale=training_factor(scene, s.downscale), train_seconds=round(seconds, 1),
+                           downscale=training_factor(s), train_seconds=round(seconds, 1),
                            alignment=runs.alignment_id(scene), train_images=len(split["train"]),
                            test_images=len(split["test"]), gpu=gpu_name(), versions=config.versions(),
                            finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -286,8 +376,11 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             steps.append(prepare)
             steps.append(Step(
                 "train", f"Training — {method.label}",
-                lambda: [config.python(), "train.py", "-s", str(inria_dataset(scene, training_factor(scene, s.downscale))),
-                         "-m", str(trained.path), "--eval", "--iterations", str(s.iterations),
+                # -r 1: le foto sono gia' alla risoluzione voluta; senza, il codice Inria le riduce a 1600 px.
+                lambda: [config.python(), "train.py", "-s", str(inria_dataset(scene, training_factor(s))),
+                         "-m", str(trained.path), "--eval", "-r", "1",
+                         "--data_device", "cpu" if _placement(s, method) == "ram" else "cuda",
+                         "--iterations", str(s.iterations),
                          "--save_iterations", str(s.iterations), "--test_iterations", str(s.iterations),
                          "--disable_viewer"],
                 progress.percent(r"Training progress:\s*(\d+)%"),
@@ -302,7 +395,9 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                          "--method-name", method.key,
                          "--timestamp", trained.timestamp, "--max-num-iterations", str(s.iterations),
                          "--viewer.quit-on-train-completion", "True",
-                         "nerfstudio-data", "--downscale-factor", str(training_factor(scene, s.downscale))],
+                         *(["--pipeline.datamanager.cache-images", "cpu"]
+                           if method.family == "gaussian" and _placement(s, method) == "ram" else []),
+                         "nerfstudio-data", "--downscale-factor", str(training_factor(s))],
                 progress.train, detail=progress.train_detail(s.iterations), quiet=progress.is_train_table,
                 before=ensure_split, after=record_training))
 

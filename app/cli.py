@@ -3,6 +3,7 @@
 Esempi:
   python -m app.cli run --project arco --photos D:\\foto --methods splatfacto nerfacto
   python -m app.cli run --project arco --steps eval export --methods splatfacto
+  python -m app.cli test --project arco --photos D:\\foto --methods splatfacto inria-3dgs --quality alta
   python -m app.cli report --project arco --csv confronto.csv
 """
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import List, Optional
 from PySide6.QtCore import QCoreApplication, QTimer
 
 from . import __version__, config, photos, pipeline, runs
-from .config import GROUPS, METHODS, Settings
+from .config import GROUPS, METHODS, QUALITIES, Settings
 from .runner import Runner
 
 
@@ -29,9 +30,14 @@ def _parser() -> argparse.ArgumentParser:
     def common(command: argparse.ArgumentParser) -> None:
         command.add_argument("--project", required=True, help="nome del progetto (cartella in data/)")
         command.add_argument("--photos", help="cartella delle foto; se omessa usa quella salvata nel progetto")
+        command.add_argument("--quality", choices=list(QUALITIES),
+                             help="livello di qualità: imposta iterazioni e risoluzione (predefinito: massima)")
         command.add_argument("--iterations", type=int, help="iterazioni di training")
-        command.add_argument("--downscale", type=int, help="fattore di riduzione delle immagini (0 = automatico)")
-        command.add_argument("--camera", choices=["single", "per_folder", "per_image"])
+        command.add_argument("--downscale", type=int,
+                             help="fattore di riduzione delle immagini (0 = il più piccolo che entra in memoria)")
+        command.add_argument("--max-side", type=int,
+                             help="con --downscale 0: lato massimo delle immagini in pixel (0 = nessun limite)")
+        command.add_argument("--camera", choices=["auto", "single", "per_folder", "per_image"])
         command.add_argument("--matcher", choices=["exhaustive", "sequential"])
         command.add_argument("--mesh-size", type=int, help="lato massimo delle immagini per la mesh, in pixel")
 
@@ -41,8 +47,10 @@ def _parser() -> argparse.ArgumentParser:
                      help="passi da eseguire (predefiniti: sfm train eval export)")
     run.add_argument("--methods", nargs="+", choices=list(METHODS), help="metodi da allenare e confrontare")
 
-    test = sub.add_parser("test", help="allena e valuta tutti i metodi installati e genera il report del confronto")
+    test = sub.add_parser("test", help="allena e valuta più metodi e genera il report del confronto")
     common(test)
+    test.add_argument("--methods", nargs="+", choices=list(METHODS),
+                      help="metodi da confrontare (predefiniti: tutti quelli installati)")
     test.add_argument("--mesh", action="store_true", help="aggiunge la fotogrammetria classica (lenta)")
 
     analyze = sub.add_parser("analyze", help="analizza le foto e propone quelle da escludere")
@@ -61,7 +69,9 @@ def _settings(args: argparse.Namespace) -> Settings:
     s.name = args.project
     if args.photos:
         s.photos = str(Path(args.photos).resolve())
-    for field in ("methods", "iterations", "downscale", "camera", "matcher", "mesh_size"):
+    if getattr(args, "quality", None):
+        s.set_quality(args.quality)
+    for field in ("methods", "iterations", "downscale", "max_side", "camera", "matcher", "mesh_size"):
         value = getattr(args, field, None)
         if value is not None:
             setattr(s, field, value)
@@ -93,7 +103,7 @@ def _run(args: argparse.Namespace) -> int:
         return 2
     s = _settings(args)
     if args.command == "test":
-        s.methods = list(config.available_methods())
+        s.methods = args.methods or list(config.available_methods())
         steps = ["train", "eval", "export", "report"] + (["mesh"] if args.mesh else [])
         if args.photos or not pipeline.state(s)["sfm"]:
             steps.append("sfm")
