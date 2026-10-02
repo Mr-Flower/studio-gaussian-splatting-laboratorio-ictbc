@@ -165,6 +165,11 @@ def test_inria_method_steps(workspace, photos, monkeypatch):
     assert command[command.index("-s") + 1] == str(dataset) and "--eval" in command
     # Senza "-r 1" il codice Inria riduce da solo a 1600 px le foto piu' grandi.
     assert command[command.index("-r") + 1] == "1" and command[command.index("--data_device") + 1] == "cuda"
+    # Salvataggi intermedi, per guardare il modello durante il training: dieci, l'ultimo alla fine.
+    first = command.index("--save_iterations") + 1
+    assert command[first:command.index("--test_iterations")] == [str(i) for i in range(100, 1001, 100)]
+    assert pipeline.inria_save_iterations(30000)[-2:] == [27000, 30000] and pipeline.inria_save_iterations(5) == [1, 2, 3, 4, 5]
+    assert train.snapshot() is None  # nessun salvataggio ancora
     monkeypatch.setattr(pipeline, "hardware", lambda: (64 * GB, 24 * GB))
     assert train.command()[train.command().index("--data_device") + 1] == "cpu"
     monkeypatch.setattr(pipeline, "hardware", lambda: (64 * GB, 48 * GB))
@@ -176,6 +181,10 @@ def test_inria_method_steps(workspace, photos, monkeypatch):
     train.after(60.0)
     run = runs.latest_run("prova", "inria-3dgs")
     assert run.trained_iterations() == 1000 and run.info()["engine"] == "inria"
+    older = os.path.join(run_dir, "point_cloud", "iteration_900")
+    os.makedirs(older)
+    train.on_line("[ITER 1000] Saving Gaussians")  # i salvataggi precedenti vengono tolti
+    assert not os.path.exists(older) and train.snapshot() == run.checkpoint()
     assert run.info()["photos_in"] == "gpu" and run.info()["downscale"] == 4
 
     assert evaluate.command()[3:5] == ["--engine", "inria"] and "--repo" in evaluate.command()

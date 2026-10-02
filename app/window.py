@@ -15,11 +15,11 @@ from PySide6.QtWidgets import (
 )
 
 from . import __version__, config, photos, pipeline, progress, runs
+from .serve import ModelServer
 from .config import GROUPS, METHODS, QUALITIES, Settings
 from .runner import STOPPED, Runner, clean, kill_tree, process_environment
 from .runs import Run
 
-SUPERSPLAT_URL = "https://superspl.at/editor"
 GPU_QUERY = ["--query-gpu=name,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"]
 PHOTO_COLUMNS = ["Escludi", "Anteprima", "Foto", "Nitidezza", "Esposizione", "Osservazioni"]
 
@@ -161,6 +161,8 @@ class MainWindow(QMainWindow):
         self.viewer: Optional[QProcess] = None
         self.worker: Optional[AnalysisWorker] = None
         self.converter: Optional[ConvertWorker] = None
+        self.server: Optional[ModelServer] = None  # avviato alla prima apertura di SuperSplat
+        self.live_snapshot = None  # funzione che restituisce il modello parziale del training in corso
         self.train_viewer_url = ""
         self.locked_scene: Optional[Path] = None
         self.table_runs: List[Run] = []
@@ -352,8 +354,11 @@ class MainWindow(QMainWindow):
         self.log.setMaximumBlockCount(4000)
         self.log.setFont(QFont("Consolas", 9))
         self.train_viewer_button = QPushButton("Guarda il training in corso")
-        self.train_viewer_button.setToolTip("Disponibile mentre è in corso il training di un metodo di nerfstudio.")
-        self.train_viewer_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(self.train_viewer_url)))
+        self.train_viewer_button.setToolTip(
+            "Durante il training apre il modello com'è in quel momento: con i metodi di nerfstudio nel loro viewer, "
+            "aggiornato in tempo reale; con il metodo Inria in SuperSplat, dall'ultimo salvataggio intermedio "
+            "(uno ogni decimo del training).")
+        self.train_viewer_button.clicked.connect(self._view_training)
         self.train_viewer_button.setEnabled(False)
         folder_button = QPushButton("Apri la cartella del progetto")
         folder_button.clicked.connect(self._open_folder)
@@ -397,11 +402,12 @@ class MainWindow(QMainWindow):
         self.compare_note.setWordWrap(True)
         self.mesh_label = QLabel("")
         self.model_button = QPushButton("Visualizza nel viewer")
-        self.model_button.setToolTip("Viewer di nerfstudio nel browser. Per il metodo Inria usare SuperSplat.")
+        self.model_button.setToolTip("Viewer di nerfstudio nel browser, anche mentre è in corso un'altra "
+                                     "elaborazione. Per il metodo Inria usare SuperSplat.")
         self.model_button.clicked.connect(self._view_model)
         self.supersplat_button = QPushButton("Pulisci e pubblica con SuperSplat")
-        self.supersplat_button.setToolTip("Apre SuperSplat nel browser e la cartella del modello: si trascina il file "
-                                          "nella pagina, lo si pulisce e da lì lo si può pubblicare.")
+        self.supersplat_button.setToolTip("Apre SuperSplat nel browser con il modello già caricato: lì lo si pulisce "
+                                          "e lo si può pubblicare.")
         self.supersplat_button.clicked.connect(self._open_supersplat)
         self.export_button = QPushButton("Apri la cartella del modello")
         self.export_button.clicked.connect(lambda: self._selected() and open_path(self._selected().export_dir))
@@ -626,8 +632,9 @@ class MainWindow(QMainWindow):
         idle = not self.runner.running()
         exported = bool(run and run.export_file)
         method = METHODS.get(run.method) if run else None
-        # Il viewer carica i dati del progetto: non va aperto durante un'elaborazione ne' su allineamenti superati.
-        self.model_button.setEnabled(bool(run) and idle and run.engine == "nerfstudio" and run.comparable() is not False)
+        # Il viewer carica i dati del progetto: non va aperto su allineamenti superati.
+        self.model_button.setEnabled(bool(run) and run.engine == "nerfstudio" and run.comparable() is not False
+                                     and run.config_file.exists())
         self.supersplat_button.setEnabled(exported and bool(method) and method.family == "gaussian")
         self.export_button.setEnabled(exported)
         self.points_action.setEnabled(exported and bool(method) and method.family == "gaussian")
@@ -688,7 +695,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Impossibile avviare", error)
             return
         self.locked_scene = s.scene
-        self._close_viewer()
+        if "sfm" in groups:  # il viewer legge i dati dell'allineamento, che sta per essere rifatto
+            self._close_viewer()
         s.save()
         self.open_report_when_done = "report" in groups
         self.log.clear()
@@ -721,6 +729,8 @@ class MainWindow(QMainWindow):
         self.step_text, self.step_percent, self.step_detail = f"Passo {index + 1} di {total}: {label}", "", ""
         self._show_step()
         self.bar.setRange(0, 0)  # indeterminato finche' il passo non comunica un avanzamento
+        self.train_viewer_url = ""
+        self.live_snapshot = self.runner.steps[index].snapshot
         self.train_viewer_button.setEnabled(False)
 
     def _show_step(self) -> None:
@@ -739,6 +749,8 @@ class MainWindow(QMainWindow):
     def _tick(self) -> None:
         seconds = int(time.time() - self.started_at)
         self.elapsed.setText(f"{seconds // 3600}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}")
+        if self.live_snapshot is not None and not self.train_viewer_button.isEnabled() and seconds % 5 == 0:
+            self.train_viewer_button.setEnabled(self.live_snapshot() is not None)
 
     def _finished(self, ok: bool, message: str) -> None:
         self.clock.stop()
@@ -746,6 +758,7 @@ class MainWindow(QMainWindow):
             pipeline.release_lock(self.locked_scene)
             self.locked_scene = None
         self._set_running(False)
+        self.live_snapshot = None
         self.train_viewer_button.setEnabled(False)
         self.bar.setRange(0, 1000)
         self.bar.setValue(1000 if ok else 0)
@@ -825,12 +838,26 @@ class MainWindow(QMainWindow):
                 viewer.waitForFinished(3000)
             viewer.deleteLater()
 
+    def _view_training(self) -> None:
+        if self.train_viewer_url:
+            QDesktopServices.openUrl(QUrl(self.train_viewer_url))
+            return
+        snapshot = self.live_snapshot() if self.live_snapshot is not None else None
+        if snapshot is not None:
+            self._supersplat(snapshot)
+
+    def _supersplat(self, model: Path) -> None:
+        """Apre SuperSplat con il modello gia' caricato, consegnato da un server locale."""
+        if self.server is None:
+            self.server = ModelServer()
+        QDesktopServices.openUrl(QUrl.fromEncoded(self.server.supersplat(model).encode("ascii")))
+        self.status.setText("SuperSplat si apre nel browser e scarica il modello da questo programma: se il browser "
+                            "chiede di accedere alla rete locale, consentire. Tenere aperto il programma.")
+
     def _open_supersplat(self) -> None:
-        # SuperSplat gira nel browser: il file va trascinato nella pagina, quindi si apre anche la cartella.
         run = self._selected()
-        if run is not None:
-            open_path(run.export_dir)
-            QDesktopServices.openUrl(QUrl(SUPERSPLAT_URL))
+        if run is not None and run.export_file is not None:
+            self._supersplat(run.export_file)
 
     def _convert_model(self, name: str) -> None:
         run = self._selected()
@@ -887,4 +914,6 @@ class MainWindow(QMainWindow):
         if self.locked_scene is not None:
             pipeline.release_lock(self.locked_scene)
         self._close_viewer()
+        if self.server is not None:
+            self.server.close()
         event.accept()

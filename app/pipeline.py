@@ -33,6 +33,7 @@ class Step:
     on_line: Optional[Callable[[str], None]] = None
     quiet: Optional[Callable[[str], bool]] = None  # righe da non mostrare nel log a video
     before: Optional[Callable[[], None]] = None
+    snapshot: Optional[Callable[[], Optional[Path]]] = None  # modello parziale gia' guardabile, se ce n'e' uno
     after: Optional[Callable[[float], None]] = None  # riceve la durata del passo in secondi
 
 
@@ -315,6 +316,15 @@ def camera_mode(s: Settings, names: List[str]) -> str:
     return "per_folder" if len({name.rpartition("/")[0] for name in names}) > 1 else "single"
 
 
+INRIA_SNAPSHOTS = 10  # salvataggi intermedi del modello durante il training Inria, per poterlo guardare
+
+
+def inria_save_iterations(iterations: int) -> List[int]:
+    """Iterazioni a cui il codice Inria salva il modello: a intervalli regolari, l'ultima alla fine."""
+    step = max(iterations // INRIA_SNAPSHOTS, 1)
+    return sorted({*range(step, iterations, step), iterations})
+
+
 def inria_dataset(scene: Path, factor: int) -> Path:
     return scene / f"inria_{factor}"
 
@@ -388,6 +398,17 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                            test_images=len(split["test"]), gpu=gpu_name(), versions=config.versions(),
                            finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
 
+        def latest_snapshot() -> Optional[Path]:
+            return trained.checkpoint()
+
+        def keep_latest_snapshot(line: str) -> None:
+            # A ogni salvataggio i precedenti non servono piu': a risoluzione piena occupano gigabyte.
+            if "Saving Gaussians" not in line:
+                return
+            saved = sorted((trained.path / "point_cloud").glob("iteration_*"), key=lambda p: int(p.name.split("_")[1]))
+            for old in saved[:-1]:
+                shutil.rmtree(old, ignore_errors=True)
+
         if inria:
             prepare = _inria_prepare_step(s)
             prepare.before = ensure_split
@@ -402,10 +423,11 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                          "-m", str(trained.path), "--eval", "-r", "1",
                          "--data_device", "cuda" if placement(s, method) == "gpu" else "cpu",
                          "--iterations", str(s.iterations),
-                         "--save_iterations", str(s.iterations), "--test_iterations", str(s.iterations),
-                         "--disable_viewer"],
+                         "--save_iterations", *map(str, inria_save_iterations(s.iterations)),
+                         "--test_iterations", str(s.iterations), "--disable_viewer"],
                 progress.percent(r"Training progress:\s*(\d+)%"),
-                cwd=config.inria_repo(), quiet=lambda line: "Training progress" in line, after=record_training))
+                cwd=config.inria_repo(), quiet=lambda line: "Training progress" in line, after=record_training,
+                on_line=keep_latest_snapshot, snapshot=latest_snapshot))
         else:
             # --method-name: senza, le varianti "-big" scrivono nella cartella del metodo base
             # (per nerfstudio splatfacto-big si chiama "splatfacto") e i run si confonderebbero.

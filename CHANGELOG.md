@@ -1,5 +1,17 @@
 # Registro delle modifiche
 
+## 0.3.1 — 2026-10-02
+
+- **Il modello si può guardare in qualsiasi momento.** Il viewer dei modelli già creati si apre
+  anche mentre è in corso un'altra elaborazione. Durante il training Inria il modello viene
+  salvato dieci volte (una ogni decimo delle iterazioni; resta solo l'ultimo salvataggio) e
+  «Guarda il training in corso» lo apre in SuperSplat.
+- **SuperSplat si apre con il modello già caricato**: non serve più trascinare il file. Il
+  programma lo consegna al browser da un indirizzo locale (127.0.0.1), raggiungibile solo dal
+  computer stesso; il browser può chiedere il permesso di accedere alla rete locale.
+- Un training Inria interrotto lascia l'ultimo salvataggio intermedio, che compare tra i run con
+  il numero di iterazioni raggiunto.
+
 ## 0.3.0 — 2026-10-02
 
 ### Novità

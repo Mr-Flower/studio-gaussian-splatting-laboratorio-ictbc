@@ -167,8 +167,8 @@ valutazione ed esportazione sono impostati dal programma per la resa migliore.
 | Scheda | Cosa si fa |
 |---|---|
 | **1. Foto** | Si analizzano le foto e si decide quali escludere dall'allineamento. |
-| **2. Crea il modello** | Si sceglie il metodo dal menu; la qualità parte da «Massima» e si può abbassare per fare prima. «Crea il modello 3D» fa tutto il resto. «Test: confronta più metodi…» fa spuntare i metodi da confrontare, li allena nelle stesse condizioni e apre il report. Durante il training dei metodi di nerfstudio il risultato si può guardare nel browser. |
-| **3. Risultati e confronto** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si converte il modello in altri formati, si genera il report e si esporta la tabella in CSV. |
+| **2. Crea il modello** | Si sceglie il metodo dal menu; la qualità parte da «Massima» e si può abbassare per fare prima. «Crea il modello 3D» fa tutto il resto. «Test: confronta più metodi…» fa spuntare i metodi da confrontare, li allena nelle stesse condizioni e apre il report. «Guarda il training in corso» mostra il modello mentre si forma: in tempo reale con i metodi di nerfstudio, dall'ultimo salvataggio intermedio (uno ogni decimo del training) con il metodo Inria. |
+| **3. Risultati e confronto** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre già caricato in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si converte il modello in altri formati, si genera il report e si esporta la tabella in CSV. |
 
 | Qualità | Iterazioni | Risoluzione delle foto |
 |---|---|---|
