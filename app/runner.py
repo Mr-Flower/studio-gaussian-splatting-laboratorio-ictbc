@@ -95,6 +95,7 @@ class Runner(QObject):
             return
         self.step_started.emit(self.index, len(self.steps), step.label)
         self.buffer = b""
+        self.out_of_memory = False
         self.step_start = time.monotonic()
         if command is None:  # passo senza processo esterno: il lavoro e' gia' stato fatto in `before`
             self._write(f"\n=== {step.label} ===")
@@ -131,6 +132,8 @@ class Runner(QObject):
         if not text:
             return
         step = self.steps[self.index]
+        if "out of memory" in text.lower():
+            self.out_of_memory = True
         self._write(text, show=not (step.quiet and step.quiet(text)))
         if step.on_line:
             step.on_line(text)
@@ -157,6 +160,10 @@ class Runner(QObject):
             self._finish(False, STOPPED)
             return
         if code != 0 or status != QProcess.ExitStatus.NormalExit:
+            if self.out_of_memory:
+                self._finish(False, f"{step.label}: memoria esaurita. Con queste foto il computer non regge "
+                                    "questa risoluzione: scegliere una qualità più bassa.")
+                return
             self._finish(False, f"{step.label} non riuscito (codice {code}). I dettagli sono nel log.")
             return
         self._completed()

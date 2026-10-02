@@ -60,6 +60,8 @@ class Method:
 
 
 INRIA = "inria-3dgs"
+# Suffisso delle varianti dei metodi di nerfstudio che leggono le foto dal disco (app/ns_disk.py).
+DISK_SUFFIX = "-disco"
 
 METHODS: Dict[str, Method] = {
     m.key: m
@@ -83,17 +85,17 @@ class Quality:
     key: str
     label: str
     iterations: int
-    max_side: int  # lato massimo delle foto in pixel; 0 = nessun limite oltre alla memoria del computer
+    max_side: int  # lato massimo delle foto in pixel; 0 = risoluzione piena
 
 
 # Livelli di qualita' del training, dal migliore. Quello predefinito e' il primo.
 QUALITIES: Dict[str, Quality] = {
     q.key: q
     for q in (
-        Quality("massima", "Massima (consigliata)", 30000, 0),
-        Quality("alta", "Alta — più veloce", 30000, 1600),
-        Quality("media", "Media", 15000, 1600),
-        Quality("bozza", "Bozza veloce", 7000, 800),
+        Quality("massima", "Massima — foto a risoluzione piena", 30000, 0),
+        Quality("alta", "Alta — foto fino a 3200 px", 30000, 3200),
+        Quality("media", "Media — foto fino a 1600 px", 30000, 1600),
+        Quality("bozza", "Bozza veloce — foto fino a 800 px, meno iterazioni", 7000, 800),
     )
 }
 
@@ -116,8 +118,8 @@ class Settings:
     matcher: str = "exhaustive"  # exhaustive | sequential
     methods: List[str] = field(default_factory=lambda: ["splatfacto"])
     iterations: int = 30000
-    downscale: int = 0  # fattore di riduzione delle foto; 0 = il piu' piccolo che rispetta max_side e la memoria
-    max_side: int = 0  # con downscale 0: lato massimo in pixel (0 = nessun limite oltre alla memoria)
+    downscale: int = 0  # fattore di riduzione delle foto; 0 = il piu' piccolo che rispetta max_side
+    max_side: int = 0  # con downscale 0: lato massimo in pixel (0 = risoluzione piena)
     mesh_size: int = 1600
 
     @property
@@ -210,6 +212,11 @@ def environment() -> Dict[str, str]:
     env["PATH"] = os.pathsep.join(
         [str(colmap_exe().parent), str(_tool("ffmpeg-*/bin")), str(VENV_SCRIPTS), env.get("PATH", "")]
     )
+    # nerfstudio deve poter importare app.ns_disk, che definisce le varianti con le foto lette dal disco.
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
+    env["NERFSTUDIO_METHOD_CONFIGS"] = ",".join(
+        f"{key}{DISK_SUFFIX}=app.ns_disk:{key.replace('-', '_')}"
+        for key, method in METHODS.items() if method.engine == "nerfstudio")
     env["PYTHONUTF8"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     env["COLUMNS"] = "160"

@@ -54,6 +54,10 @@ def nerfstudio_views(run: Path) -> Iterator[View]:
 def inria_views(run: Path, repo: Path) -> Iterator[View]:
     sys.path.insert(0, str(repo))
     sys.argv = [sys.argv[0], "-m", str(run)]
+    # Le foto si leggono una alla volta: caricarle tutte, comprese quelle di training, non serve
+    # e ad alta risoluzione non entrerebbero in memoria.
+    from . import inria_lazy
+    inria_lazy.install()
     from arguments import ModelParams, PipelineParams, get_combined_args
     from gaussian_renderer import GaussianModel, render as render_view
     from scene import Scene

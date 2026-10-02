@@ -10,7 +10,7 @@ from PySide6.QtCore import QProcess, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
+    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar,
     QPushButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -53,20 +53,41 @@ class AnalysisWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class ConvertWorker(QThread):
+    """Converte un modello in un altro formato fuori dal thread dell'interfaccia (i file grandi richiedono tempo)."""
+
+    done = Signal(str, int)
+    failed = Signal(str)
+
+    def __init__(self, source: Path, target: Path, parent=None) -> None:
+        super().__init__(parent)
+        self.source, self.target = source, target
+
+    def run(self) -> None:
+        try:
+            from . import convert
+            self.done.emit(str(self.target), convert.convert(self.source, self.target))
+        except Exception as exc:  # va mostrato all'utente, non deve chiudere il thread in silenzio
+            self.failed.emit(str(exc))
+
+
 def quality_text(s: Settings, methods: List[str]) -> str:
-    """Cosa comporta la qualita' scelta: iterazioni e risoluzione delle foto, con il motivo se e' ridotta."""
+    """Cosa comporta la qualita' scelta: iterazioni, risoluzione delle foto e come vengono caricate."""
     text = f"{s.iterations:,} iterazioni".replace(",", ".")
     side = pipeline.image_size(s)
     if not side:
-        return text + "; la risoluzione delle foto viene scelta quando si indica la cartella."
-    factor, limited_by = pipeline.training_plan(s, methods)
+        return text + "; la risoluzione delle foto si vede quando si indica la cartella."
+    factor = pipeline.training_factor(s)
     if factor == 1:
-        return text + f", foto a risoluzione piena ({side} px di lato)."
-    text += f", foto a {side // factor} px di lato"
-    if limited_by:
-        culprit = f" con «{limited_by}»" if len(methods) > 1 else ""
-        text += f": il massimo che entra nella memoria di questo computer{culprit}"
-    return text + f" (originali: {side} px)."
+        text += f", foto a risoluzione piena ({side} px di lato)."
+    else:
+        text += f", foto a {side // factor} px di lato (originali: {side} px)."
+    slow = pipeline.disk_methods(s, methods)
+    if slow:
+        who = "" if len(methods) == 1 else " per " + ", ".join(f"«{m.short}»" for m in slow)
+        text += (f" A questa risoluzione le foto non entrano in memoria tutte insieme{who}: vengono lette dal "
+                 "disco durante il training, che dura parecchio di più.")
+    return text
 
 
 class TestDialog(QDialog):
@@ -139,6 +160,7 @@ class MainWindow(QMainWindow):
         self.runner = Runner(self)
         self.viewer: Optional[QProcess] = None
         self.worker: Optional[AnalysisWorker] = None
+        self.converter: Optional[ConvertWorker] = None
         self.train_viewer_url = ""
         self.locked_scene: Optional[Path] = None
         self.table_runs: List[Run] = []
@@ -256,7 +278,7 @@ class MainWindow(QMainWindow):
         self.method_note = QLabel("")
         self.method_note.setWordWrap(True)
         self.quality = self._combo([(q.label, q.key) for q in QUALITIES.values()])
-        self.quality.setToolTip("Il programma parte dalla resa migliore che questo computer regge: "
+        self.quality.setToolTip("Si parte dalla resa migliore, con le foto a risoluzione piena: "
                                 "abbassarla serve solo a fare prima.")
         self.quality_note = QLabel("")
         self.quality_note.setWordWrap(True)
@@ -383,6 +405,17 @@ class MainWindow(QMainWindow):
         self.supersplat_button.clicked.connect(self._open_supersplat)
         self.export_button = QPushButton("Apri la cartella del modello")
         self.export_button.clicked.connect(lambda: self._selected() and open_path(self._selected().export_dir))
+        self.formats_button = QPushButton("Altri formati…")
+        self.formats_button.setToolTip("Converte il modello selezionato in nuvola di punti (.ply) o in .glb, "
+                                       "e la mesh della fotogrammetria in .glb.")
+        self.formats_menu = QMenu(self)
+        self.points_action = self.formats_menu.addAction("Nuvola di punti (.ply) dal modello selezionato")
+        self.points_action.triggered.connect(lambda: self._convert_model("punti.ply"))
+        self.glb_action = self.formats_menu.addAction("GLB con la nuvola di punti del modello selezionato")
+        self.glb_action.triggered.connect(lambda: self._convert_model("punti.glb"))
+        self.mesh_glb_action = self.formats_menu.addAction("GLB con la mesh della fotogrammetria")
+        self.mesh_glb_action.triggered.connect(self._convert_mesh)
+        self.formats_button.setMenu(self.formats_menu)
         self.mesh_button = QPushButton("Apri la mesh")
         self.mesh_button.clicked.connect(self._open_mesh)
         self.report_button = QPushButton("Genera e apri il report")
@@ -391,7 +424,8 @@ class MainWindow(QMainWindow):
         self.csv_button = QPushButton("Esporta la tabella in CSV…")
         self.csv_button.clicked.connect(self._export_csv)
         buttons = QHBoxLayout()
-        for button in (self.model_button, self.supersplat_button, self.export_button, self.mesh_button,
+        for button in (self.model_button, self.supersplat_button, self.export_button, self.formats_button,
+                       self.mesh_button,
                        self.report_button, self.csv_button):
             buttons.addWidget(button)
         layout = QVBoxLayout()
@@ -486,6 +520,7 @@ class MainWindow(QMainWindow):
         self._fill_table(s.name if valid else "")
         self.mesh_label.setText(("Fotogrammetria classica: " + runs.mesh_summary(s.scene)) if state["mesh"] else "")
         self.mesh_button.setEnabled(state["mesh"])
+        self.mesh_glb_action.setEnabled(state["mesh"])
         if valid and not self.runner.running() and self.viewer is None:
             self.status.setText("Nessuna elaborazione in corso.")
 
@@ -595,6 +630,8 @@ class MainWindow(QMainWindow):
         self.model_button.setEnabled(bool(run) and idle and run.engine == "nerfstudio" and run.comparable() is not False)
         self.supersplat_button.setEnabled(exported and bool(method) and method.family == "gaussian")
         self.export_button.setEnabled(exported)
+        self.points_action.setEnabled(exported and bool(method) and method.family == "gaussian")
+        self.glb_action.setEnabled(exported)
         self.report_button.setEnabled(idle and any(r.comparable() is True and r.metrics() for r in self.table_runs))
 
     # --- esecuzione
@@ -795,6 +832,31 @@ class MainWindow(QMainWindow):
             open_path(run.export_dir)
             QDesktopServices.openUrl(QUrl(SUPERSPLAT_URL))
 
+    def _convert_model(self, name: str) -> None:
+        run = self._selected()
+        if run is not None and run.export_file is not None:
+            self._convert(run.export_file, run.export_dir / name)
+
+    def _convert_mesh(self) -> None:
+        dense = self._settings().scene / "colmap" / "dense"
+        self._convert(dense / "mesh-poisson.ply", dense / "mesh-poisson.glb")
+
+    def _convert(self, source: Path, target: Path) -> None:
+        if self.converter is not None and self.converter.isRunning():
+            return
+        self.formats_button.setEnabled(False)
+        self.status.setText(f"Conversione in {target.name}…")
+        self.converter = ConvertWorker(source, target, self)
+        self.converter.done.connect(self._converted)
+        self.converter.failed.connect(lambda message: (self.formats_button.setEnabled(True),
+                                                       QMessageBox.critical(self, "Conversione", message)))
+        self.converter.start()
+
+    def _converted(self, target: str, count: int) -> None:
+        self.formats_button.setEnabled(True)
+        self.status.setText(f"Creato {Path(target).name}: {count:,} punti o vertici.".replace(",", "."))
+        open_path(Path(target).parent)
+
     def _open_mesh(self) -> None:
         mesh = self._settings().scene / "colmap" / "dense" / "mesh-poisson.ply"
         meshlab = config.TOOLS / "meshlab" / "meshlab.exe"
@@ -819,8 +881,9 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
             self.runner.stop()
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.wait()
+        for thread in (self.worker, self.converter):
+            if thread is not None and thread.isRunning():
+                thread.wait()
         if self.locked_scene is not None:
             pipeline.release_lock(self.locked_scene)
         self._close_viewer()

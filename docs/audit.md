@@ -71,15 +71,19 @@ della risoluzione.
 | # | Gravità | Problema | Correzione |
 |---|---|---|---|
 | 34 | M | Per ottenere un modello bisognava spuntare metodi e passi e scegliere iterazioni e risoluzione: troppe decisioni per chi vuole solo il risultato. | Un menu per il metodo e un pulsante; il resto è deciso dal programma, con la qualità massima come punto di partenza. |
-| 35 | M | La risoluzione automatica era limitata a 1600 pixel anche quando il computer ne reggeva di più. | Si sceglie la risoluzione più alta con cui le foto entrano in memoria, calcolata per ogni metodo da quanta memoria occupa una foto. |
+| 35 | M | La risoluzione automatica era limitata a 1600 pixel, e quella piena era di fatto irraggiungibile: i tre programmi caricano tutte le foto in memoria (per il caso di studio, da 56 a 296 GB a risoluzione piena). | La risoluzione predefinita è quella piena. Se le foto non entrano in memoria vengono lette dal disco durante il training: si paga in tempo, non in risoluzione. |
 | 36 | A | Oltre i 1600 pixel di larghezza il codice Inria riduce le foto da solo: scegliendo una risoluzione più alta avrebbe lavorato in condizioni diverse dagli altri metodi senza segnalarlo. | La risoluzione è imposta in modo esplicito anche al codice Inria. |
 | 37 | A | Il report prendeva l'ultimo run di ogni metodo, anche se fatti a risoluzioni o iterazioni diverse. | Entrano nel report solo i run fatti nelle stesse condizioni; gli altri sono elencati come esclusi. |
 | 38 | B | Il test confrontava sempre tutti i metodi installati. | I metodi del test si scelgono. |
 
 ## Punti aperti
 
-- **Stima della memoria**: la risoluzione massima è scelta da una stima (byte per pixel di ogni
-  programma, metà della memoria disponibile), verificata su un solo computer e un solo set di foto.
+- **Stima della memoria**: se le foto entrano in memoria si decide con una stima (byte per pixel
+  di ogni programma, metà della memoria disponibile), verificata su un solo computer.
+- **Memoria della scheda grafica per il modello**: a risoluzione piena il numero di gaussiane e i
+  buffer di rendering crescono; non c'è una stima preventiva, solo il messaggio d'errore.
+- **Tempi con le foto lette dal disco**: includono la lettura, quindi non sono confrontabili con
+  quelli dei run con le foto in memoria.
 
 - **Metriche geometriche**: il confronto misura la qualità delle immagini sintetizzate, non
   l'accuratezza della geometria. La mesh fotogrammetrica non ha quindi metriche confrontabili con

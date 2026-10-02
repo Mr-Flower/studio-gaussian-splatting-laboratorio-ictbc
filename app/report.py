@@ -281,6 +281,10 @@ def build(project: str) -> Path:
                        and run.comparable() is True and "psnr" in run.metrics()})
     left_out_html = ("<p class='note'>Non inclusi, perché allenati con risoluzione o numero di iterazioni diversi: "
                      + html.escape("; ".join(left_out)) + ".</p>") if left_out else ""
+    from_disk = [e["label"] for e in entries if e["info"].get("photos_in") == "disk"]
+    if from_disk:
+        left_out_html += ("<p class='note'>Foto lette dal disco durante il training (non entravano in memoria): "
+                          + html.escape("; ".join(from_disk)) + ". Il loro tempo di training include la lettura.</p>")
     views_html = "".join(f"<img src='figure/{p.name}' alt='Vista di test a confronto'>" for p in strips)
     versions = first["info"].get("versions", {})
     conditions = _table(["Condizione", "Valore"], [

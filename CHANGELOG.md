@@ -7,9 +7,12 @@
 - **Interfaccia più semplice**: il metodo si sceglie da un menu a tendina e «Crea il modello 3D»
   fa tutto il resto (allineamento se manca, training, valutazione, esportazione). I passi non si
   spuntano più a mano; le opzioni meno usate sono in «Opzioni avanzate».
-- **Qualità**: quattro livelli (massima, alta, media, bozza). Si parte dalla massima, cioè dalla
-  risoluzione più alta con cui le foto entrano nella memoria del computer; i livelli inferiori
-  servono solo a fare prima. Da riga di comando: `--quality` e `--max-side`.
+- **Qualità**: quattro livelli (massima, alta, media, bozza). Si parte dalla massima, cioè dalle
+  foto a risoluzione piena; i livelli inferiori servono solo a fare prima. Da riga di comando:
+  `--quality` e `--max-side`.
+- **Foto lette dal disco**: quando le foto non entrano in memoria tutte insieme, il training le
+  legge dal disco invece di ridurne la risoluzione (gsplat, codice Inria e NeRF). Più lento, ma
+  la risoluzione non dipende più dalla memoria del computer.
 - **Test con scelta dei metodi**: «Test: confronta più metodi…» apre l'elenco dei metodi da
   spuntare e la qualità comune a tutti. Da riga di comando: `test --methods`.
 - **Modello di camera automatico**: una camera per sottocartella se le foto sono divise in
@@ -20,17 +23,24 @@
   registra la disinstallazione. Lo costruisce GitHub Actions e lo allega alla release.
 - **Cartella di lavoro separata**: con il programma installato, progetti e risultati stanno in una
   cartella scelta dall'utente e non in quella del programma.
+- **Altri formati**: dal modello selezionato si ottengono la nuvola di punti (`.ply`) e un `.glb`;
+  la mesh della fotogrammetria si converte in `.glb` (pulsante «Altri formati…» e `python -m app.convert`).
 - Icona del programma, anche nella barra delle applicazioni.
 
 ### Cambiamenti che incidono sui risultati
 
-- **La risoluzione predefinita non è più limitata a 1600 pixel**: è la più alta che entra in
-  memoria per tutti i metodi allenati insieme. Per riavere la regola precedente: qualità «Alta».
+- **La risoluzione predefinita non è più limitata a 1600 pixel**: è quella piena. Per riavere la
+  regola precedente: qualità «Media».
+- **Con le foto lette dal disco il tempo di training include la lettura**, e i NeRF campionano i
+  raggi da un gruppo di foto alla volta. I run registrano il tipo di caricamento (`photos_in`).
+- La valutazione del metodo Inria legge una foto alla volta invece di caricarle tutte: i valori
+  non cambiano, serve meno memoria.
 - **Il report confronta solo run fatti nelle stesse condizioni** (risoluzione e iterazioni): prima
   prendeva l'ultimo run di ogni metodo, anche se a risoluzioni diverse.
 
 ### Correzioni
 
+- Se la memoria si esaurisce durante un passo, il messaggio lo dice e invita ad abbassare la qualità.
 - Metodo Inria: oltre i 1600 pixel di larghezza il codice Inria riduceva le foto da solo, quindi con
   «metà risoluzione» o «risoluzione piena» avrebbe lavorato a una risoluzione diversa dagli altri
   metodi. Ora la risoluzione gli è imposta. I run fatti con la 0.2.0 alla risoluzione automatica

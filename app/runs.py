@@ -60,7 +60,11 @@ class Run:
 
     @property
     def path(self) -> Path:
-        return config.WORK / "outputs" / self.project / self.method / self.timestamp
+        # I run con le foto lette dal disco stanno nella cartella della variante del metodo
+        # (es. splatfacto-disco): nerfstudio ritrova da quel nome come ricaricare il modello.
+        base = config.WORK / "outputs" / self.project
+        variant = base / (self.method + config.DISK_SUFFIX) / self.timestamp
+        return variant if variant.is_dir() else base / self.method / self.timestamp
 
     @property
     def config_file(self) -> Path:
@@ -140,7 +144,11 @@ def new_run(project: str, method: str) -> Run:
 def list_runs(project: str) -> List[Run]:
     """Run con un checkpoint salvato, dal piu' recente."""
     base = config.WORK / "outputs" / project
-    runs = [Run(project, folder.parent.name, folder.name) for folder in base.glob("*/*") if folder.is_dir()]
+    def method(folder: Path) -> str:
+        name = folder.parent.name
+        return name[: -len(config.DISK_SUFFIX)] if name.endswith(config.DISK_SUFFIX) else name
+
+    runs = [Run(project, method(folder), folder.name) for folder in base.glob("*/*") if folder.is_dir()]
     runs = [r for r in runs if r.checkpoint() is not None]
     return sorted(runs, key=lambda r: r.checkpoint().stat().st_mtime, reverse=True)
 

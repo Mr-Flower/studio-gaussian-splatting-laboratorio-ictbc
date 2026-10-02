@@ -123,6 +123,7 @@ begin
   Testo := Trim(S);
   if Testo = '' then
     Exit;
+  Log('installa.ps1: ' + Testo);
   if Pos('ERRORE:', Testo) = 1 then
     Errore := Trim(Copy(Testo, 8, Length(Testo)))
   else if Pos('== [', Testo) = 1 then

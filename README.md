@@ -87,15 +87,21 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
    otto (convenzione di Mip-NeRF 360 e di 3D Gaussian Splatting). L'elenco è scritto nei formati
    letti da nerfstudio e dal codice Inria, e in fase di valutazione si verifica che ogni metodo sia
    stato valutato esattamente su quelle foto.
-4. **Risoluzione.** Lo stesso fattore di riduzione (1, 2, 4 o 8) per tutti i metodi allenati
-   insieme: il più piccolo con cui le foto entrano in memoria per ognuno di essi, contando al più
-   metà della memoria centrale e della scheda grafica. I livelli di qualità inferiori aggiungono un
-   tetto al lato maggiore (1600 o 800 pixel) e riducono le iterazioni. Nel report entrano solo run
-   fatti alla stessa risoluzione e con lo stesso numero di iterazioni.
-5. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
+4. **Risoluzione.** Lo stesso fattore di riduzione (1, 2, 4 o 8) per tutti i metodi: di norma 1,
+   cioè le foto a risoluzione piena; i livelli di qualità inferiori fissano un tetto al lato
+   maggiore (3200, 1600 o 800 pixel). Nel report entrano solo run fatti alla stessa risoluzione e
+   con lo stesso numero di iterazioni.
+5. **Caricamento delle foto.** I tre programmi di training tengono tutte le foto in memoria. Quando
+   non entrano (più di metà della memoria centrale o della scheda grafica), le foto vengono lette
+   dal disco durante il training: per gsplat e per il codice Inria una foto per iterazione, con gli
+   stessi valori di pixel del caricamento normale; per i NeRF a gruppi di foto sostituiti ogni 200
+   iterazioni, la modalità prevista da nerfstudio per i set grandi. Modello, ottimizzazione e
+   rendering non cambiano; cambia il tempo di training, che include la lettura. Ogni run registra
+   come sono state caricate le foto.
+6. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
    calcolano PSNR, SSIM [8] e LPIPS [9] (rete AlexNet) con lo stesso codice per tutti i metodi. La
    velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima.
-6. **Tracciabilità.** Ogni run salva parametri, durata di ogni passo, scheda grafica, versioni dei
+7. **Tracciabilità.** Ogni run salva parametri, durata di ogni passo, scheda grafica, versioni dei
    componenti e l'impronta dell'allineamento usato.
 
 ### Limiti
@@ -156,26 +162,42 @@ risultati nella propria cartella.
 
 Si avvia dall'icona sul desktop o dal menu Start. Basta indicare la cartella
 delle foto, scegliere il metodo dal menu e premere «Crea il modello 3D»: allineamento, risoluzione,
-valutazione ed esportazione sono impostati dal programma per la resa migliore che il computer regge.
+valutazione ed esportazione sono impostati dal programma per la resa migliore.
 
 | Scheda | Cosa si fa |
 |---|---|
 | **1. Foto** | Si analizzano le foto e si decide quali escludere dall'allineamento. |
 | **2. Crea il modello** | Si sceglie il metodo dal menu; la qualità parte da «Massima» e si può abbassare per fare prima. «Crea il modello 3D» fa tutto il resto. «Test: confronta più metodi…» fa spuntare i metodi da confrontare, li allena nelle stesse condizioni e apre il report. Durante il training dei metodi di nerfstudio il risultato si può guardare nel browser. |
-| **3. Risultati e confronto** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si genera il report e si esporta la tabella in CSV. |
+| **3. Risultati e confronto** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si converte il modello in altri formati, si genera il report e si esporta la tabella in CSV. |
 
 | Qualità | Iterazioni | Risoluzione delle foto |
 |---|---|---|
-| Massima (predefinita) | 30.000 | la più alta che entra in memoria |
-| Alta | 30.000 | lato maggiore fino a 1600 px |
-| Media | 15.000 | lato maggiore fino a 1600 px |
+| Massima (predefinita) | 30.000 | piena |
+| Alta | 30.000 | lato maggiore fino a 3200 px |
+| Media | 30.000 | lato maggiore fino a 1600 px |
 | Bozza veloce | 7.000 | lato maggiore fino a 800 px |
 
-Con più metodi insieme la risoluzione è quella che regge anche il più esigente: il codice Inria e i
-NeRF tengono le foto in memoria in virgola mobile e a parità di computer arrivano a risoluzioni più
-basse di gsplat. In «Opzioni avanzate» si trovano il modello di camera, il tipo di matching, la
+La risoluzione piena non dipende dalla memoria del computer: se le foto non entrano in memoria
+tutte insieme vengono lette dal disco durante il training, che dura parecchio di più (il programma
+lo segnala sotto il menu della qualità). Resta il limite della memoria della scheda grafica per il
+modello: se non basta, il training si ferma con un messaggio che invita ad abbassare la qualità.
+In «Opzioni avanzate» si trovano il modello di camera, il tipo di matching, la
 ripetizione dell'allineamento e la fotogrammetria classica (mesh), molto più lenta degli altri passi:
 con centinaia di foto servono molte ore.
+
+### Formati di uscita
+
+| Risultato | Formato | Note |
+|---|---|---|
+| Modello di gaussiane | `splat.ply` | Formato standard del 3D Gaussian Splatting, letto da SuperSplat e dai viewer di gaussiane. Da SuperSplat si può salvare anche in `.splat`, `.sog` o come pagina HTML. |
+| Nuvola di punti dalle gaussiane | `punti.ply` | «Altri formati…»: un punto al centro di ogni gaussiana con il suo colore di base; si scartano le gaussiane quasi trasparenti. Si perdono forma e riflessi. |
+| Nuvola di punti di un NeRF | `point_cloud.ply` | Un milione di punti campionati dal campo di radianza. |
+| Nuvola densa e mesh | `fused.ply`, `mesh-poisson.ply` | Dalla fotogrammetria classica (opzioni avanzate). |
+| GLB | `punti.glb`, `mesh-poisson.glb` | «Altri formati…»: la nuvola di punti del modello o la mesh della fotogrammetria. |
+
+Un `.glb` non contiene le gaussiane: il formato glTF non ha ancora un modo diffuso di
+rappresentarle, quindi dal modello di gaussiane si ottiene un `.glb` con la nuvola di punti. Per
+una superficie in `.glb` serve la mesh della fotogrammetria classica.
 
 ### Riga di comando
 
@@ -191,6 +213,9 @@ con centinaia di foto servono molte ore.
 
 # solo alcuni metodi e passi
 .venv\Scripts\python -m app.cli run --project arco --steps train eval export --methods splatfacto inria-3dgs
+
+# conversione di un modello esportato in nuvola di punti o in GLB
+.venv\Scripts\python -m app.convert exportsrco\splatfacto_<data>\splat.ply punti.glb
 
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv

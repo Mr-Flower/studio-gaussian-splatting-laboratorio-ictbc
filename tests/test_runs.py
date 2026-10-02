@@ -2,6 +2,8 @@ import csv
 import json
 import os
 
+import pytest
+
 from app import config, runs
 from app.config import Settings
 
@@ -83,6 +85,8 @@ def test_quality_levels_set_iterations_and_resolution(workspace):
     assert s.camera == "auto"
     s.set_quality("bozza")
     assert s.quality == "bozza" and (s.iterations, s.max_side) == (7000, 800)
+    s.set_quality("alta")
+    assert (s.iterations, s.max_side) == (30000, 3200)
     s.iterations = 1234  # impostazioni scelte a mano
     assert s.quality is None
     s.set_quality("alta")
@@ -132,6 +136,35 @@ def test_projects_and_results_go_to_the_work_folder(workspace, tmp_path, monkeyp
 
     (workspace / config.WORK_FILE).unlink()
     assert config._work_dir() == workspace  # senza indicazione: tutto nella cartella del programma
+
+
+def test_gaussians_become_a_point_cloud_and_a_glb(tmp_path):
+    np = pytest.importorskip("numpy")
+    plyfile = pytest.importorskip("plyfile")
+    trimesh = pytest.importorskip("trimesh")
+    from app import convert
+
+    gaussians = np.zeros(3, dtype=[(n, "f4") for n in ("x", "y", "z", "f_dc_0", "f_dc_1", "f_dc_2", "opacity")])
+    gaussians["x"] = [0.0, 1.0, 2.0]
+    gaussians["f_dc_0"] = [0.0, 10.0, -10.0]   # colore di base: grigio medio, saturo, nero
+    gaussians["opacity"] = [3.0, 3.0, -6.0]    # la terza e' quasi trasparente: non diventa un punto
+    source = tmp_path / "splat.ply"
+    plyfile.PlyData([plyfile.PlyElement.describe(gaussians, "vertex")]).write(str(source))
+
+    assert convert.convert(source, tmp_path / "punti.ply") == 2
+    points = plyfile.PlyData.read(str(tmp_path / "punti.ply"))["vertex"]
+    assert list(points["x"]) == [0.0, 1.0] and list(points["red"]) == [128, 255] and list(points["green"]) == [128, 128]
+    assert convert.convert(source, tmp_path / "tutti.ply", min_opacity=0) == 3
+
+    assert convert.convert(source, tmp_path / "punti.glb") == 2 and not convert.has_faces(source)
+    cloud = list(trimesh.load(str(tmp_path / "punti.glb")).geometry.values())[0]
+    assert len(cloud.vertices) == 2
+
+    mesh = trimesh.creation.box()
+    mesh.export(str(tmp_path / "mesh.ply"))
+    assert convert.has_faces(tmp_path / "mesh.ply") and convert.convert(tmp_path / "mesh.ply", tmp_path / "mesh.glb") == 8
+    with pytest.raises(ValueError):
+        convert.convert(source, tmp_path / "modello.obj")
 
 
 def test_missing_components_are_reported(workspace):

@@ -77,8 +77,16 @@ def gpu_name() -> str:
 
 
 def hardware() -> Tuple[int, int]:
-    """Memoria del computer e della scheda grafica, in byte (0 = non nota)."""
-    return psutil.virtual_memory().total, _gpu()[1]
+    """Memoria del computer e della scheda grafica, in byte (0 = non nota).
+
+    La variabile d'ambiente SGS_MEMORIA_GB="64,48" (memoria centrale, scheda grafica) le sostituisce:
+    serve a lasciare memoria ad altri programmi o a provare la lettura delle foto dal disco.
+    """
+    try:
+        ram, vram = (float(x) for x in os.environ["SGS_MEMORIA_GB"].split(","))
+        return int(ram * 2**30), int(vram * 2**30)
+    except (KeyError, ValueError):
+        return psutil.virtual_memory().total, _gpu()[1]
 
 
 # --- blocco del progetto: una sola elaborazione alla volta per progetto
@@ -235,6 +243,7 @@ def image_size(s: Settings) -> int:
 # su 25 GB occupati in tutto, con una scheda da 48 GB.
 MEMORY_SHARE = 0.5
 FACTORS = (1, 2, 4, 8)
+NERF_REPEAT = 200  # iterazioni dopo le quali un NeRF che carica le foto a gruppi cambia gruppo
 
 
 def photo_bytes(method: Method) -> int:
@@ -244,8 +253,13 @@ def photo_bytes(method: Method) -> int:
     return 3 if method.family == "gaussian" else 12  # nerfstudio: interi per splatfacto, virgola mobile per i NeRF
 
 
-def photo_placement(method: Method, images: int, train: int, pixels: int) -> Optional[str]:
-    """Dove stanno le foto durante il training ("gpu" o "ram"); None se non entrano in memoria."""
+def photo_placement(method: Method, images: int, train: int, pixels: int) -> str:
+    """Dove stanno le foto durante il training.
+
+    "gpu" o "ram" se entrano tutte in memoria, come prevede il programma di training; "disk" se
+    non entrano: allora vengono lette dal disco mentre il training procede, che e' piu' lento
+    ma non dipende dalla memoria (app/ns_disk.py e app/inria_lazy.py).
+    """
     ram, vram = hardware()
     need = images * pixels * photo_bytes(method)
     on_gpu = not vram or need <= vram * MEMORY_SHARE
@@ -254,41 +268,44 @@ def photo_placement(method: Method, images: int, train: int, pixels: int) -> Opt
     wants_gpu = method.engine == "inria" or (method.family == "gaussian" and train <= 500)
     if wants_gpu and on_gpu:
         return "gpu"
-    return "ram" if in_ram else None
+    return "ram" if in_ram else "disk"
 
 
-def training_plan(s: Settings, methods: Optional[Iterable[str]] = None) -> Tuple[int, Optional[str]]:
-    """Fattore di riduzione delle foto, uguale per tutti i metodi allenati insieme, e chi lo ha imposto.
+def training_factor(s: Settings) -> int:
+    """Fattore di riduzione delle foto, uguale per tutti i metodi.
 
-    Con un fattore esplicito si usa quello. Altrimenti si sceglie il piu' piccolo (cioe' la
-    risoluzione piu' alta) che rispetta il lato massimo richiesto e con cui le foto entrano in
-    memoria per ognuno dei metodi. Il secondo valore e' il nome del metodo che ha impedito una
-    risoluzione piu' alta per limiti di memoria, None se la memoria non ha limitato la scelta.
+    Con un fattore esplicito si usa quello; altrimenti il piu' piccolo (cioe' la risoluzione piu'
+    alta) che rispetta il lato massimo richiesto: senza limite, la risoluzione piena.
     """
     if s.downscale:
-        return s.downscale, None
-    chosen = [METHODS[m] for m in (s.methods if methods is None else methods) if m in METHODS]
-    images, train, width, height = photo_stats(s)
-    limited_by = None
-    for factor in FACTORS:
-        if s.max_side and max(width, height) / factor > s.max_side:
-            continue
-        pixels = (width // factor) * (height // factor)
-        too_big = next((m for m in chosen if photo_placement(m, images, train, pixels) is None), None)
-        if too_big is None:
-            return factor, limited_by
-        limited_by = too_big.label
-    return FACTORS[-1], limited_by
+        return s.downscale
+    side = image_size(s)
+    return next((f for f in FACTORS if not s.max_side or side / f <= s.max_side), FACTORS[-1])
 
 
-def training_factor(s: Settings, methods: Optional[Iterable[str]] = None) -> int:
-    return training_plan(s, methods)[0]
-
-
-def _placement(s: Settings, method: Method) -> Optional[str]:
+def placement(s: Settings, method: Method) -> str:
     images, train, width, height = photo_stats(s)
     factor = training_factor(s)
     return photo_placement(method, images, train, (width // factor) * (height // factor))
+
+
+def disk_methods(s: Settings, methods: Optional[Iterable[str]] = None) -> List[Method]:
+    """Tra i metodi indicati, quelli che leggeranno le foto dal disco perche' non entrano in memoria."""
+    chosen = [METHODS[m] for m in (s.methods if methods is None else methods) if m in METHODS]
+    return [m for m in chosen if placement(s, m) == "disk"]
+
+
+def nerf_group(s: Settings) -> int:
+    """Quante foto un NeRF tiene in memoria alla volta quando le carica a gruppi.
+
+    Al cambio di gruppo convivono il gruppo vecchio, le foto nuove e la loro copia impilata:
+    ogni foto conta tre volte.
+    """
+    _, train, width, height = photo_stats(s)
+    factor = training_factor(s)
+    one = max((width // factor) * (height // factor) * photo_bytes(METHODS["nerfacto"]), 1)
+    ram = hardware()[0] or 16 * 2**30
+    return max(4, min(int(ram * MEMORY_SHARE / (3 * one)), train))
 
 
 def camera_mode(s: Settings, names: List[str]) -> str:
@@ -365,6 +382,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
         def record_training(seconds: float) -> None:
             split = colmap_model.read_split(scene)
             trained.update(method=method.key, family=method.family, engine=method.engine, iterations=s.iterations,
+                           photos_in=placement(s, method),
                            downscale=training_factor(s), train_seconds=round(seconds, 1),
                            alignment=runs.alignment_id(scene), train_images=len(split["train"]),
                            test_images=len(split["test"]), gpu=gpu_name(), versions=config.versions(),
@@ -377,9 +395,12 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             steps.append(Step(
                 "train", f"Training — {method.label}",
                 # -r 1: le foto sono gia' alla risoluzione voluta; senza, il codice Inria le riduce a 1600 px.
-                lambda: [config.python(), "train.py", "-s", str(inria_dataset(scene, training_factor(s))),
+                # Se le foto non entrano in memoria, train.py parte tramite inria_lazy, che le legge dal disco.
+                lambda: [config.python(),
+                         *([str(config.ROOT / "app" / "inria_lazy.py")] if placement(s, method) == "disk" else []),
+                         "train.py", "-s", str(inria_dataset(scene, training_factor(s))),
                          "-m", str(trained.path), "--eval", "-r", "1",
-                         "--data_device", "cpu" if _placement(s, method) == "ram" else "cuda",
+                         "--data_device", "cuda" if placement(s, method) == "gpu" else "cpu",
                          "--iterations", str(s.iterations),
                          "--save_iterations", str(s.iterations), "--test_iterations", str(s.iterations),
                          "--disable_viewer"],
@@ -388,15 +409,27 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
         else:
             # --method-name: senza, le varianti "-big" scrivono nella cartella del metodo base
             # (per nerfstudio splatfacto-big si chiama "splatfacto") e i run si confonderebbero.
+            # Deve essere il nome con cui nerfstudio conosce il metodo: da li' ricava come ricaricarlo.
+            def ns_name() -> str:
+                return method.key + (config.DISK_SUFFIX if placement(s, method) == "disk" else "")
+
+            def memory_options() -> List[str]:
+                where = placement(s, method)
+                if where == "disk" and method.family == "nerf":
+                    return ["--pipeline.datamanager.train-num-images-to-sample-from", str(nerf_group(s)),
+                            "--pipeline.datamanager.train-num-times-to-repeat-images", str(NERF_REPEAT)]
+                if where == "ram" and method.family == "gaussian":
+                    return ["--pipeline.datamanager.cache-images", "cpu"]
+                return []
+
             steps.append(Step(
                 "train", f"Training — {method.label}",
-                lambda: [config.ns("ns-train"), method.key, "--data", str(scene),
+                lambda: [config.ns("ns-train"), ns_name(), "--data", str(scene),
                          "--output-dir", str(config.WORK / "outputs"), "--experiment-name", s.name,
-                         "--method-name", method.key,
+                         "--method-name", ns_name(),
                          "--timestamp", trained.timestamp, "--max-num-iterations", str(s.iterations),
                          "--viewer.quit-on-train-completion", "True",
-                         *(["--pipeline.datamanager.cache-images", "cpu"]
-                           if method.family == "gaussian" and _placement(s, method) == "ram" else []),
+                         *memory_options(),
                          "nerfstudio-data", "--downscale-factor", str(training_factor(s))],
                 progress.train, detail=progress.train_detail(s.iterations), quiet=progress.is_train_table,
                 before=ensure_split, after=record_training))

@@ -53,35 +53,33 @@ def aligned(s, images=1, width=5280, height=3956):
 
 
 @pytest.mark.parametrize("longest, requested, max_side, expected", [
-    (5280, 0, 1600, 4), (3072, 0, 1600, 2), (1600, 0, 1600, 1), (30000, 0, 1600, 8), (5280, 0, 800, 8),
-    (5280, 0, 0, 1), (5280, 2, 1600, 2), (5280, 1, 800, 1),
+    (5280, 0, 0, 1), (5280, 0, 3200, 2), (5280, 0, 1600, 4), (3072, 0, 1600, 2), (1600, 0, 1600, 1),
+    (30000, 0, 1600, 8), (5280, 0, 800, 8), (5280, 2, 1600, 2), (5280, 1, 800, 1),
 ])
 def test_training_resolution_follows_the_requested_limit(workspace, photos, longest, requested, max_side, expected):
+    # La memoria non riduce mai la risoluzione: anche con 887 foto grandi vale solo il limite richiesto.
     s = settings(photos, downscale=requested, max_side=max_side)
-    aligned(s, width=longest, height=longest * 3 // 4)
+    aligned(s, images=887, width=longest, height=longest * 3 // 4)
     assert pipeline.training_factor(s) == expected
 
 
-@pytest.mark.parametrize("methods, expected, limited_by", [
+@pytest.mark.parametrize("max_side, expected", [
     # 887 foto da 5280 x 3956 px, 64 GB di memoria e 48 GB sulla scheda grafica (il caso di studio).
-    (["splatfacto"], 2, "splatfacto"),          # 3 byte per pixel: a risoluzione piena 55 GB, a meta' 14
-    (["splatfacto-big"], 2, "splatfacto-big"),
-    (["inria-3dgs"], 4, "inria-3dgs"),          # 16 byte per pixel: a meta' risoluzione 74 GB
-    (["nerfacto"], 4, "nerfacto"),              # 12 byte per pixel: a meta' risoluzione 55 GB
-    (["splatfacto", "inria-3dgs"], 4, "inria-3dgs"),  # insieme: la risoluzione che regge anche il piu' esigente
+    (0, {"splatfacto": "disk", "inria-3dgs": "disk", "nerfacto": "disk"}),      # piena: da 56 a 296 GB di foto
+    (3200, {"splatfacto": "ram", "inria-3dgs": "disk", "nerfacto": "disk"}),    # 2640 px: 14, 74 e 55 GB
+    (1600, {"splatfacto": "ram", "inria-3dgs": "gpu", "nerfacto": "ram"}),      # 1320 px: 3,5, 18,5 e 14 GB
 ])
-def test_best_resolution_is_the_highest_that_fits_in_memory(workspace, photos, methods, expected, limited_by):
-    s = settings(photos, methods=methods)
+def test_photos_that_do_not_fit_in_memory_are_read_from_disk(workspace, photos, max_side, expected):
+    s = settings(photos, methods=list(expected), max_side=max_side)
     aligned(s, images=887)
-    factor, culprit = pipeline.training_plan(s)
-    assert factor == expected and culprit == METHODS[limited_by].label
-    assert pipeline.training_factor(s, ["splatfacto"]) == 2  # i metodi si possono indicare a parte
+    assert {key: pipeline.placement(s, METHODS[key]) for key in expected} == expected
+    assert [m.key for m in pipeline.disk_methods(s)] == [k for k, where in expected.items() if where == "disk"]
 
 
-def test_few_small_photos_train_at_full_resolution(workspace, photos):
+def test_few_small_photos_stay_in_memory_at_full_resolution(workspace, photos):
     s = settings(photos, methods=list(METHODS))
     aligned(s, images=40, width=2000, height=1500)
-    assert pipeline.training_plan(s) == (1, None)
+    assert pipeline.training_factor(s) == 1 and pipeline.disk_methods(s) == []
 
 
 def test_where_the_photos_are_kept_during_training(workspace, monkeypatch):
@@ -94,9 +92,45 @@ def test_where_the_photos_are_kept_during_training(workspace, monkeypatch):
     monkeypatch.setattr(pipeline, "hardware", lambda: (64 * GB, 24 * GB))
     assert pipeline.photo_placement(inria, 887, 776, pixels) == "ram"      # non entra in 12 GB: memoria centrale
     monkeypatch.setattr(pipeline, "hardware", lambda: (16 * GB, 24 * GB))
-    assert pipeline.photo_placement(inria, 887, 776, pixels) is None
+    assert pipeline.photo_placement(inria, 887, 776, pixels) == "disk"
     monkeypatch.setattr(pipeline, "hardware", lambda: (0, 0))               # memoria non nota: nessun limite
     assert pipeline.photo_placement(inria, 887, 776, pixels) == "gpu"
+
+
+def test_training_commands_when_photos_are_read_from_disk(workspace, photos):
+    s = settings(photos, methods=["splatfacto-big", "nerfacto", "inria-3dgs"])
+    make_sparse_model(s.scene / "colmap", "0", registered=5)
+    aligned(s, images=887)
+    (s.scene / colmap_model.SPLIT_FILE).write_text(json.dumps({"train": ["a"] * 776, "test": ["b"] * 111}))
+    splat, nerf, _, inria = pipeline.build_steps(s, ["train"])
+
+    command = splat.command()
+    assert command[1] == "splatfacto-big-disco"  # la variante di app/ns_disk.py
+    assert command[command.index("--method-name") + 1] == "splatfacto-big-disco"
+    # Il run sta nella cartella della variante, ma resta un run del metodo di partenza.
+    timestamp = command[command.index("--timestamp") + 1]
+    folder = make_run(workspace, "prova", "splatfacto-big-disco", timestamp)
+    (run,) = runs.list_runs("prova")
+    assert (run.method, run.path) == ("splatfacto-big", folder) and run.export_dir.name == f"splatfacto-big_{timestamp}"
+    splat.after(10.0)
+    assert run.info()["photos_in"] == "disk" and (folder / runs.RUN_FILE).exists()
+    assert "--pipeline.datamanager.cache-images" not in command
+
+    command = nerf.command()
+    assert command[1] == "nerfacto-disco"
+    # 250 MB per foto in virgola mobile, tre copie al cambio di gruppo, meta' di 64 GB: 42 foto alla volta.
+    assert command[command.index("--pipeline.datamanager.train-num-images-to-sample-from") + 1] == "45"
+    assert command[command.index("--pipeline.datamanager.train-num-times-to-repeat-images") + 1] == "200"
+    assert command.index("--pipeline.datamanager.train-num-images-to-sample-from") < command.index("nerfstudio-data")
+
+    command = inria.command()
+    assert command[1].endswith("inria_lazy.py") and command[2] == "train.py"
+    assert command[command.index("-r") + 1] == "1"
+
+    # Le varianti sono note a nerfstudio tramite l'ambiente dei processi, e 'app' deve essere importabile.
+    env = config.environment()
+    assert "splatfacto-big-disco=app.ns_disk:splatfacto_big" in env["NERFSTUDIO_METHOD_CONFIGS"].split(",")
+    assert "inria" not in env["NERFSTUDIO_METHOD_CONFIGS"] and str(config.ROOT) in env["PYTHONPATH"].split(os.pathsep)
 
 
 def test_resolution_is_known_before_the_alignment(workspace, tmp_path):
@@ -111,7 +145,7 @@ def test_resolution_is_known_before_the_alignment(workspace, tmp_path):
 
 
 def test_inria_method_steps(workspace, photos, monkeypatch):
-    s = settings(photos, methods=["inria-3dgs"])
+    s = settings(photos, methods=["inria-3dgs"], max_side=1600)
     make_sparse_model(s.scene / "colmap", "0", registered=5)
     (s.scene / "transforms.json").write_text(json.dumps({"frames": [{"w": 5280, "h": 3956}] * 887}))
     (s.scene / colmap_model.SPLIT_FILE).write_text(json.dumps({"train": ["a"], "test": ["b"]}))
@@ -127,7 +161,7 @@ def test_inria_method_steps(workspace, photos, monkeypatch):
     assert prepare.command() is None  # gia' pronta per questo allineamento: non si rifa'
 
     command = train.command()
-    assert command[1] == "train.py" and train.cwd == config.inria_repo()
+    assert command[1] == "train.py" and train.cwd == config.inria_repo()  # in memoria: codice Inria com'e'
     assert command[command.index("-s") + 1] == str(dataset) and "--eval" in command
     # Senza "-r 1" il codice Inria riduce da solo a 1600 px le foto piu' grandi.
     assert command[command.index("-r") + 1] == "1" and command[command.index("--data_device") + 1] == "cuda"
@@ -142,6 +176,7 @@ def test_inria_method_steps(workspace, photos, monkeypatch):
     train.after(60.0)
     run = runs.latest_run("prova", "inria-3dgs")
     assert run.trained_iterations() == 1000 and run.info()["engine"] == "inria"
+    assert run.info()["photos_in"] == "gpu" and run.info()["downscale"] == 4
 
     assert evaluate.command()[3:5] == ["--engine", "inria"] and "--repo" in evaluate.command()
     assert export.command() is None  # copia diretta del .ply, senza processo esterno
