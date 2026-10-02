@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, Signal
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, Signal
 
 from . import config
 from .pipeline import Step
@@ -94,10 +94,15 @@ class Runner(QObject):
             self._finish(False, f"{step.label}: {exc}")
             return
         self.step_started.emit(self.index, len(self.steps), step.label)
-        self._write(f"\n=== {step.label} ===\n> {subprocess.list2cmdline(command)}")
         self.buffer = b""
         self.step_start = time.monotonic()
+        if command is None:  # passo senza processo esterno: il lavoro e' gia' stato fatto in `before`
+            self._write(f"\n=== {step.label} ===")
+            QTimer.singleShot(0, self._completed)
+            return
+        self._write(f"\n=== {step.label} ===\n> {subprocess.list2cmdline(command)}")
         self.proc = QProcess(self)
+        self.proc.setWorkingDirectory(str(step.cwd or config.ROOT))
         self.proc.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.proc.setProcessEnvironment(process_environment())
         self.proc.readyReadStandardOutput.connect(self._read)
@@ -154,6 +159,12 @@ class Runner(QObject):
         if code != 0 or status != QProcess.ExitStatus.NormalExit:
             self._finish(False, f"{step.label} non riuscito (codice {code}). I dettagli sono nel log.")
             return
+        self._completed()
+
+    def _completed(self) -> None:
+        if not self.active:
+            return
+        step = self.steps[self.index]
         seconds = time.monotonic() - self.step_start
         self._write(f"--- {step.label}: {seconds:.0f} s", show=False)
         try:

@@ -44,19 +44,38 @@ ricerca o l'affidabilità, **B** = qualità del codice e dell'interfaccia.
 
 | # | Gravità | Problema | Correzione |
 |---|---|---|---|
-| 22 | M | Nessun test automatico. | 35 test sui parser dei log, sulla costruzione dei comandi, sul registro dei run e sui controlli; eseguiti a ogni push con GitHub Actions. |
+| 22 | M | Nessun test automatico. | Test automatici (51 alla versione 0.2.0) sui parser dei log, sulla costruzione dei comandi, sul registro dei run e sui controlli; eseguiti a ogni push con GitHub Actions. |
 | 23 | B | Un unico file per finestra, esecuzione e logica. | Moduli separati: `config`, `progress`, `runs`, `pipeline`, `runner`, `window`, `cli`. |
 | 24 | B | Dipendenze non fissate (`rawpy`, `PySide6`), nessun numero di versione. | Versioni fissate in `requirements.txt`; versione dell'applicazione in `app/__init__.py`. |
 
+## Seconda revisione (versione 0.2.0)
+
+Riguarda la validità del confronto, dopo l'aggiunta del gaussian splatting originale di Inria.
+
+| # | Gravità | Problema | Correzione |
+|---|---|---|---|
+| 26 | A | nerfstudio e il codice Inria sceglievano foto di test diverse (il 10% a intervalli regolari il primo, una su otto il secondo): le metriche dei due non erano confrontabili. | Un'unica suddivisione per progetto, scritta nei formati letti da entrambi; in valutazione si verifica che le viste siano proprio quelle. |
+| 27 | A | Le metriche erano calcolate dal programma di training: LPIPS con reti diverse (AlexNet in nerfstudio, VGG nel codice Inria) e tempi di rendering misurati in modi diversi. | Un solo modulo di valutazione per tutti i metodi. |
+| 28 | A | La risoluzione «automatica» era decisa da ciascun programma con regole diverse (lato massimo 1600 px per riduzioni successive in nerfstudio, ridimensionamento a 1600 px nel codice Inria). | Fattore di riduzione calcolato una volta e passato in modo esplicito a tutti. |
+| 29 | M | Tutte le foto della cartella entravano nell'allineamento, comprese quelle mosse, quasi duplicate o estranee al soggetto. | Analisi preliminare con proposta di esclusione. |
+| 30 | M | Una prima misura di nitidezza (varianza del laplaciano) segnalava come mosse le foto con molto cielo o superfici lisce: 140 foto su 906 nel caso di studio. | Misura indipendente dal soggetto (dettaglio fine rispetto al grossolano, sulle sole zone con dettaglio), confrontata tra foto della stessa cartella: 9 segnalate, verificate a vista. |
+| 31 | M | Il programma cercava gli strumenti in un percorso fisso (`.venv`). | Usa l'ambiente con cui è avviato. |
+| 32 | M | L'installazione richiedeva di scaricare a mano cinque componenti e, per tiny-cuda-nn e il codice Inria, un compilatore C++ e CUDA Toolkit. | Installazione automatica con moduli già compilati. |
+| 33 | B | Il pulsante del viewer non riconosceva l'indirizzo scritto da `ns-viewer`. | Riconosciuti entrambi i formati. |
+
 ## Punti aperti
 
-- **Licenza del repository**: non è stata scelta. Senza licenza altri non possono riusare il codice.
 - **Metriche geometriche**: il confronto misura la qualità delle immagini sintetizzate, non
   l'accuratezza della geometria. La mesh fotogrammetrica non ha quindi metriche confrontabili con
   gli altri metodi; servirebbe un riferimento metrico (ad esempio un rilievo laser).
-- **NeRF senza tiny-cuda-nn**: funziona con l'implementazione PyTorch, più lenta. Installare
-  tiny-cuda-nn richiede un compilatore C++ e i diritti di amministratore.
+- **Immagini di riferimento**: nerfstudio e il codice Inria correggono la distorsione con procedure
+  diverse; le immagini vere usate nella valutazione coincidono nel contenuto ma non pixel per pixel.
 - **Variazioni di esposizione**: nessuno dei metodi configurati compensa differenze di luce tra le
   foto; su rilievi lunghi questo penalizza le metriche.
-- **Installer**: l'applicazione si usa dalla cartella del repository; non esiste ancora un programma
-  di installazione.
+- **Foto estranee al soggetto**: l'analisi non le riconosce (nel caso di studio, una foto di gruppo
+  è stata tolta a mano).
+- **Ripetizioni**: ogni configurazione è eseguita una volta; la variabilità tra esecuzioni non è stimata.
+- **Installazione**: provata su una sola macchina. Lo scaricamento dei moduli compilati dalla
+  release richiede che il repository sia pubblico.
+- **Palette dei grafici**: è quella di riferimento, documentata come distinguibile anche con
+  daltonismo; il controllo automatico non è stato eseguito su questa macchina.

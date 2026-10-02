@@ -76,9 +76,27 @@ class Run:
         path = self.export_dir / method.export_file if method else None
         return path if path and path.exists() else None
 
+    @property
+    def engine(self) -> str:
+        method = config.METHODS.get(self.method)
+        return method.engine if method else "nerfstudio"
+
     def checkpoint(self) -> Optional[Path]:
-        checkpoints = sorted((self.path / "nerfstudio_models").glob("step-*.ckpt"))
-        return checkpoints[-1] if checkpoints else None
+        """Modello salvato a fine training; la sua presenza distingue un run completo da uno interrotto."""
+        if self.engine == "inria":
+            saved = sorted(self.path.glob("point_cloud/iteration_*/point_cloud.ply"),
+                           key=lambda p: int(p.parent.name.split("_")[1]))
+        else:
+            saved = sorted((self.path / "nerfstudio_models").glob("step-*.ckpt"))
+        return saved[-1] if saved else None
+
+    def trained_iterations(self) -> int:
+        checkpoint = self.checkpoint()
+        if checkpoint is None:
+            return 0
+        if self.engine == "inria":
+            return int(checkpoint.parent.name.split("_")[1])
+        return int(checkpoint.stem.split("-")[1]) + 1
 
     def info(self) -> Dict[str, Any]:
         return read_json(self.path / RUN_FILE)
@@ -104,7 +122,7 @@ def new_run(project: str, method: str) -> Run:
 def list_runs(project: str) -> List[Run]:
     """Run con un checkpoint salvato, dal piu' recente."""
     base = config.ROOT / "outputs" / project
-    runs = [Run(project, cfg.parent.parent.name, cfg.parent.name) for cfg in base.glob("*/*/config.yml")]
+    runs = [Run(project, folder.parent.name, folder.name) for folder in base.glob("*/*") if folder.is_dir()]
     runs = [r for r in runs if r.checkpoint() is not None]
     return sorted(runs, key=lambda r: r.checkpoint().stat().st_mtime, reverse=True)
 
@@ -139,7 +157,7 @@ def row(run: Run) -> Dict[str, Any]:
     return {
         "method": method.label if method else run.method,
         "date": time.strftime("%d/%m/%Y %H:%M", time.localtime(checkpoint.stat().st_mtime)),
-        "iterations": info.get("iterations") or int(checkpoint.stem.split("-")[1]) + 1,
+        "iterations": info.get("iterations") or run.trained_iterations(),
         "resolution": "" if downscale is None else ("automatica" if downscale == 0 else f"1/{downscale}"),
         "train_minutes": round(info["train_seconds"] / 60, 1) if "train_seconds" in info else "",
         "psnr": round(metrics["psnr"], 2) if "psnr" in metrics else "",

@@ -53,7 +53,7 @@ def test_csv_export(workspace, tmp_path):
     with open(target, encoding="utf-8-sig", newline="") as f:
         header, first = list(csv.reader(f, delimiter=";"))
     assert header[0] == "Metodo" and header[-1] == "Cartella del run"
-    assert first[0] == "Gaussian splatting (splatfacto)" and len(first) == len(header)
+    assert first[0] == config.METHODS["splatfacto"].label and len(first) == len(header)
 
 
 def test_alignment_summary(workspace):

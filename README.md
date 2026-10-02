@@ -1,150 +1,188 @@
 # Studio Gaussian Splatting — Laboratorio ICTBC
 
-Strumento di ricerca per confrontare, sullo stesso set di fotografie, metodi diversi di
-ricostruzione 3D: **3D Gaussian Splatting**, **NeRF** e **fotogrammetria classica** (multi-view
-stereo). Tutti i metodi partono dallo stesso allineamento delle camere, così le differenze nei
-risultati dipendono dal metodo e non dai dati di partenza.
+**Confronto riproducibile tra 3D Gaussian Splatting, NeRF e fotogrammetria multi-vista per la
+ricostruzione 3D di beni architettonici da fotografie: metodo, strumento software e caso di studio
+dell'Arco di Traiano a Benevento.**
 
-Il caso di studio è il rilievo fotografico da drone dell'Arco di Traiano a Benevento, ma il
-programma funziona con qualsiasi cartella di foto.
+## Abstract
 
-Uso previsto: ricerca scientifica, non commerciale.
+**Contesto.** La ricostruzione tridimensionale da fotografie dispone oggi di tre famiglie di metodi:
+la fotogrammetria multi-vista, che produce nuvole dense e mesh; i campi di radianza neurali (NeRF),
+che codificano la scena in una rete neurale; il 3D Gaussian Splatting, che la rappresenta con
+gaussiane esplicite rasterizzabili in tempo reale. I confronti pubblicati usano spesso dati di
+partenza, viste di test, risoluzioni e codici di valutazione diversi da metodo a metodo, e questo
+rende difficile attribuire le differenze osservate al metodo anziché al protocollo.
+
+**Obiettivo.** Mettere a confronto i tre approcci a parità di condizioni su un rilievo reale di un
+bene architettonico, e rendere il confronto ripetibile da chiunque su un proprio set di fotografie.
+
+**Metodi.** Si presenta uno strumento open source che, data una cartella di fotografie, (i) ne
+analizza la qualità e propone l'esclusione di quelle poco nitide, male esposte o quasi duplicate;
+(ii) calcola un unico allineamento delle camere con COLMAP; (iii) allena sullo stesso allineamento
+cinque configurazioni — 3D Gaussian Splatting nell'implementazione originale di Inria e in quella
+di gsplat (due varianti), NeRF con nerfacto (due varianti) — e ricostruisce nuvola densa e mesh con
+la fotogrammetria multi-vista; (iv) valuta ogni modello con un protocollo unico: stesse fotografie
+di training e di test (una su otto esclusa dal training), stessa risoluzione, stesso codice per
+PSNR, SSIM e LPIPS, stessa misura del tempo di rendering; (v) registra tempi di calcolo,
+dimensioni dei modelli e versioni del software, e produce un report con grafici e viste a
+confronto. Il caso di studio è l'Arco di Traiano a Benevento, rilevato da drone con 906 fotografie,
+887 delle quali selezionate dall'analisi automatica.
+
+**Risultati.** L'intera procedura è stata verificata su un set di prova di 40 fotografie con tutte
+le configurazioni. Il confronto completo sul caso di studio è in corso di elaborazione: i valori
+numerici saranno riportati in questa sezione e nella sezione [Risultati](#risultati) al suo termine.
+
+**Conclusioni.** Lo strumento rende il confronto tra metodi un'operazione di routine: l'utente
+fornisce solo la cartella delle fotografie e ottiene i modelli, le misure e il report. Le
+conclusioni sul caso di studio saranno formulate sui risultati misurati.
+
+**Parole chiave:** 3D Gaussian Splatting; Neural Radiance Fields; fotogrammetria; structure from
+motion; multi-view stereo; beni culturali; rilievo da drone; riproducibilità.
+
+### Abstract (English)
+
+*Background.* Image-based 3D reconstruction now offers three families of methods: multi-view
+photogrammetry, neural radiance fields (NeRF) and 3D Gaussian Splatting. Published comparisons
+often differ in input data, held-out views, image resolution and evaluation code from one method to
+the next, which makes it hard to attribute observed differences to the method rather than to the
+protocol. *Objective.* To compare the three approaches under identical conditions on a real survey
+of an architectural heritage asset, and to make the comparison repeatable on any photo set.
+*Methods.* We present an open-source tool that, given a folder of photographs, screens them for
+blur, exposure and near-duplicates; computes a single camera alignment with COLMAP; trains five
+configurations on that alignment — 3D Gaussian Splatting in the original Inria implementation and
+in gsplat (two variants), and NeRF with nerfacto (two variants) — and reconstructs a dense cloud
+and mesh by multi-view stereo; evaluates every model with one protocol (same training and test
+images, one in eight held out; same resolution; same code for PSNR, SSIM and LPIPS; same rendering
+time measurement); and records computing times, model sizes and software versions, producing a
+report with charts and side-by-side views. The case study is the Arch of Trajan in Benevento
+(Italy), surveyed by drone with 906 photographs, 887 of which were retained by the automatic
+screening. *Results.* The whole procedure has been verified on a 40-image test set with all
+configurations; the full comparison on the case study is in progress and its figures will be
+reported here. *Keywords:* 3D Gaussian Splatting; Neural Radiance Fields; photogrammetry; structure
+from motion; multi-view stereo; cultural heritage; UAV survey; reproducibility.
 
 ## Metodi a confronto
 
 | Metodo | Famiglia | Rappresentazione | Implementazione | Risultato esportato |
 |---|---|---|---|---|
-| `splatfacto` | 3D Gaussian Splatting [1] | gaussiane 3D esplicite, rasterizzate | nerfstudio [3] + gsplat [2] | `splat.ply` |
+| `inria-3dgs` | 3D Gaussian Splatting [1] | gaussiane 3D esplicite, rasterizzate | codice originale Inria [1] | `splat.ply` |
+| `splatfacto` | 3D Gaussian Splatting [1] | come sopra | nerfstudio [3] + gsplat [2] | `splat.ply` |
 | `splatfacto-big` | 3D Gaussian Splatting [1] | come sopra, con più gaussiane | nerfstudio + gsplat | `splat.ply` |
 | `nerfacto` | NeRF [4] | campo di radianza neurale, rendering volumetrico | nerfstudio [3] | nuvola di punti `point_cloud.ply` |
 | `nerfacto-big` | NeRF [4] | come sopra, rete più grande | nerfstudio | nuvola di punti `point_cloud.ply` |
 | Fotogrammetria | Multi-view stereo [6] + Poisson [7] | nuvola densa e mesh | COLMAP | `fused.ply`, `mesh-poisson.ply` |
 
-L'allineamento delle camere (structure-from-motion [5]) è fatto una sola volta con COLMAP ed è
-condiviso da tutti i metodi.
+Ogni metodo è usato con i parametri predefiniti della sua implementazione; il numero di iterazioni
+è lo stesso per tutti.
 
-Sono elencati solo i metodi verificati su questa installazione. I metodi NeRF girano con
-l'implementazione PyTorch delle codifiche, perché `tiny-cuda-nn` non è installato: i risultati sono
-validi, i tempi di calcolo sono molto più lunghi di quelli ottenibili con `tiny-cuda-nn` e vanno
-letti di conseguenza.
+## Protocollo sperimentale
 
-## Cosa viene misurato
+1. **Selezione delle fotografie.** Per ogni foto si misurano la nitidezza (rapporto tra dettaglio
+   fine e dettaglio grossolano, calcolato sulle sole zone ricche di dettaglio), la frazione di pixel
+   bruciati o neri e un'impronta percettiva. Si propone di escludere le foto con nitidezza sotto il
+   40% della mediana della propria cartella, quelle con più di metà dei pixel bruciati o neri e i
+   quasi-doppioni (si tiene la più nitida). La decisione resta all'utente; nessun file viene toccato.
+2. **Allineamento.** Structure-from-motion con COLMAP [5], una sola volta, condiviso da tutti i metodi.
+3. **Suddivisione training/test.** Le foto allineate, ordinate per nome, vanno al test una ogni
+   otto (convenzione di Mip-NeRF 360 e di 3D Gaussian Splatting). L'elenco è scritto nei formati
+   letti da nerfstudio e dal codice Inria, e in fase di valutazione si verifica che ogni metodo sia
+   stato valutato esattamente su quelle foto.
+4. **Risoluzione.** Lo stesso fattore di riduzione per tutti i metodi; in automatico si dimezza
+   finché il lato maggiore non scende a 1600 pixel o meno.
+5. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
+   calcolano PSNR, SSIM [8] e LPIPS [9] (rete AlexNet) con lo stesso codice per tutti i metodi. La
+   velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima.
+6. **Tracciabilità.** Ogni run salva parametri, durata di ogni passo, scheda grafica, versioni dei
+   componenti e l'impronta dell'allineamento usato.
 
-Per ogni run di training il programma registra:
+### Limiti
 
-- **Qualità delle immagini sintetizzate**: PSNR, SSIM [8] e LPIPS [9] sulle viste di test. Il 10%
-  delle foto, scelte a intervalli regolari, è escluso dal training e usato solo per la valutazione
-  (impostazione predefinita di nerfstudio); la suddivisione è la stessa per tutti i metodi.
-- **Tempi**: durata del training (dell'intero comando, caricamento dei dati incluso), della
-  valutazione e dell'esportazione.
-- **Dimensioni**: numero di gaussiane o di punti esportati, dimensione del modello salvato.
-- **Velocità di rendering** in fotogrammi al secondo, durante la valutazione.
-- **Condizioni dell'esperimento**: iterazioni, risoluzione delle immagini, numero di foto, scheda
-  grafica, versioni di nerfstudio, gsplat, PyTorch e COLMAP.
-
-Per la fotogrammetria classica sono registrati i tempi di ogni fase, il numero di punti della
-nuvola densa e di vertici della mesh.
-
-I risultati sono raccolti in una tabella di confronto, esportabile in CSV.
-
-### Limiti del confronto
-
-- Le metriche misurano la fedeltà delle immagini, non l'accuratezza geometrica. La mesh
-  fotogrammetrica non produce immagini sintetizzate e non ha quindi PSNR, SSIM o LPIPS: il confronto
-  con gli altri metodi su questo piano richiede un riferimento metrico indipendente.
-- Sono confrontabili solo i run fatti sullo stesso allineamento e alla stessa risoluzione. Se
-  l'allineamento viene rifatto, i run precedenti sono segnalati come non più confrontabili.
+- Le metriche misurano la fedeltà delle immagini, non l'accuratezza geometrica. La fotogrammetria
+  non produce immagini da nuovi punti di vista e non ha quindi PSNR, SSIM o LPIPS: il confronto con
+  gli altri metodi sul piano geometrico richiede un riferimento metrico indipendente.
+- L'immagine vera con cui si confronta ogni vista è preparata dal programma che ha allenato il
+  modello: nerfstudio e il codice Inria correggono la distorsione dell'obiettivo con procedure
+  diverse, quindi le immagini di riferimento coincidono nel contenuto ma non pixel per pixel.
 - Nessuno dei metodi configurati compensa le differenze di esposizione tra le foto.
-- Ogni configurazione è eseguita una volta: le metriche non hanno una stima della variabilità tra
-  esecuzioni ripetute.
+- Ogni configurazione è eseguita una volta: la variabilità tra esecuzioni ripetute non è stimata.
+- Sono confrontabili solo i run fatti sullo stesso allineamento; se viene rifatto, i run precedenti
+  sono segnalati ed esclusi dal report.
 
 ## Caso di studio: Arco di Traiano
 
 Rilievo del 19 luglio 2024 con drone DJI Mavic 3 (camera Hasselblad L2D-20c, 5280×3956 pixel): 906
 fotografie scattate tra le 9:25 e le 16:08, con esposizione e bilanciamento del bianco automatici.
 853 sono i JPG della camera; 53 fotogrammi, disponibili solo in formato DNG, sono stati sviluppati
-con `scripts/0_prepare_arco.py`.
+con `scripts/0_prepare_arco.py` e sono trattati come una seconda camera. L'analisi automatica ha
+scartato 19 foto (9 poco nitide, 11 quasi-doppioni, una in entrambe le categorie): il set usato è
+di 887 fotografie.
 
-Le fotografie e i modelli non sono nel repository per le loro dimensioni. I risultati del confronto
-saranno aggiunti qui al termine delle elaborazioni.
+Le fotografie e i modelli non sono nel repository per le loro dimensioni.
 
-## Requisiti
+## Risultati
 
-- Windows 10/11 a 64 bit
-- Scheda NVIDIA con driver recenti (sviluppato su RTX A6000, 48 GB)
-- Python 3.10
+Il confronto sul caso di studio è in corso. Al termine, questa sezione riporterà la tabella delle
+misure e i grafici prodotti dal report (`reports/<progetto>/`).
 
 ## Installazione
 
-Dalla cartella del repository, in PowerShell:
+Requisiti: Windows 10/11 a 64 bit; scheda NVIDIA RTX (serie 20, 30, 40 o professionali equivalenti)
+con driver 551.61 o successivo; circa 25 GB liberi. Non servono diritti di amministratore.
 
-```powershell
-python -m venv .venv
-.venv\Scripts\python -m pip install --upgrade pip
-.venv\Scripts\python -m pip install -r requirements.txt
-```
+1. Scaricare il codice della [release](../../releases) e scompattarlo in una cartella dal percorso
+   breve, ad esempio `C:\StudioGS` (alcuni componenti superano il limite di Windows sui percorsi
+   lunghi se la cartella è annidata in profondità).
+2. Doppio clic su `Installa.bat`.
 
-Poi vanno scaricati e scompattati in `tools\` (non serve installarli):
+L'installazione scarica e configura tutto il necessario nella cartella del programma: Python 3.10,
+PyTorch, nerfstudio e gsplat, i moduli CUDA già compilati allegati alla release (tiny-cuda-nn e i
+moduli del codice Inria), COLMAP, FFmpeg, MeshLab e il codice Inria. Può essere rilanciata: riprende
+da dove si era fermata. Se i moduli compilati non sono scaricabili, il programma funziona comunque,
+senza il metodo Inria e con i metodi NeRF più lenti.
 
-| Cartella | Cosa | Da dove |
-|---|---|---|
-| `tools\colmap-4.2.1\` | COLMAP 4.2.1, build Windows con CUDA | https://github.com/colmap/colmap/releases |
-| `tools\ffmpeg-*\` | FFmpeg, build "essentials" | https://www.gyan.dev/ffmpeg/builds/ |
-| `tools\meshlab\` | MeshLab portabile (facoltativo, per aprire la mesh) | https://github.com/cnr-isti-vclab/meshlab/releases |
+## Uso
 
-All'avvio il programma segnala i componenti mancanti.
+Doppio clic su `Avvia.bat` (o sul collegamento creato sul desktop). Basta indicare la cartella
+delle foto; il resto ha valori predefiniti.
 
-## Uso con l'interfaccia grafica
-
-Doppio clic su `Avvia.bat`.
-
-1. Scegli la cartella delle foto: il nome del progetto viene proposto automaticamente.
-2. Seleziona i metodi da confrontare e i passi da eseguire.
-3. Premi «Avvia».
-
-I passi sono cinque:
-
-| Passo | Cosa fa |
+| Scheda | Cosa si fa |
 |---|---|
-| Allineamento | Posizione e parametri delle camere con COLMAP. Si fa una volta per progetto. |
-| Training | Allena ogni metodo selezionato. Ogni avvio crea un nuovo run, senza sovrascrivere i precedenti. |
-| Valutazione | Calcola PSNR, SSIM e LPIPS sulle viste di test. |
-| Esportazione | Salva il modello di ogni run in `exports\`. |
-| Mesh | Nuvola densa e mesh con COLMAP. Con centinaia di foto richiede molte ore. |
+| **1. Foto** | Si analizzano le foto e si decide quali escludere dall'allineamento. |
+| **2. Elaborazione** | Si scelgono metodi e passi e si avvia. «Test: confronta tutti i metodi» allena, valuta ed esporta tutti i metodi installati e genera il report. Durante il training dei metodi di nerfstudio il risultato si può guardare nel browser. |
+| **3. Confronto dei metodi** | Tabella dei run con le loro misure. Da qui si apre un modello nel viewer, lo si apre in [SuperSplat](https://superspl.at/editor) per pulirlo e pubblicarlo, si apre la mesh in MeshLab, si genera il report e si esporta la tabella in CSV. |
 
-La scheda «Confronto dei metodi» elenca i run del progetto con le loro misure. Da lì si apre un
-modello nel viewer di nerfstudio, si apre un gaussian splat in [SuperSplat](https://superspl.at/editor)
-per pulirlo, si apre la mesh in MeshLab e si esporta la tabella in CSV.
+I passi eseguibili sono: allineamento, training, valutazione, esportazione, fotogrammetria classica
+(mesh) e report. La mesh è molto più lenta degli altri passi: con centinaia di foto servono molte ore.
 
-## Uso da riga di comando
-
-La stessa pipeline è disponibile senza interfaccia, per esecuzioni in serie:
+### Riga di comando
 
 ```powershell
-# allineamento, training, valutazione ed esportazione di due metodi
-.venv\Scripts\python -m app.cli run --project arco --photos D:\foto\arco --methods splatfacto nerfacto
+# confronto completo: tutti i metodi, valutazione, esportazione e report
+.venv\Scripts\python -m app.cli test --project arco --photos D:\foto\arco
 
-# solo alcuni passi, su un progetto già allineato
-.venv\Scripts\python -m app.cli run --project arco --steps train eval export --methods splatfacto-big --iterations 30000
+# analisi delle foto, escludendo quelle suggerite
+.venv\Scripts\python -m app.cli analyze --project arco --photos D:\foto\arco --apply
+
+# solo alcuni metodi e passi
+.venv\Scripts\python -m app.cli run --project arco --steps train eval export --methods splatfacto inria-3dgs
 
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv
 ```
 
-`python -m app.cli run --help` elenca tutte le opzioni.
-
 ## Dove finiscono i risultati
 
 ```
 data\<progetto>\                      allineamento, comune a tutti i metodi
-    project.json                      impostazioni del progetto
-    alignment.json                    foto allineate, punti, errore di riproiezione
+    project.json, photos.json         impostazioni; analisi delle foto ed esclusioni
+    alignment.json, split.json        esito dell'allineamento; foto di training e di test
     colmap\                           ricostruzione sparsa; colmap\dense\ per nuvola densa e mesh
     pipeline.log                      log completo delle elaborazioni
 outputs\<progetto>\<metodo>\<data>\   un run di training
-    run.json                          parametri, tempi, versioni
-    metrics.json                      PSNR, SSIM, LPIPS
+    run.json, metrics.json            parametri, tempi, versioni; metriche per vista e medie
+    test_views\                       alcune viste di test, vere e generate
 exports\<progetto>\<metodo>_<data>\   modello esportato
+reports\<progetto>\                   report: index.html, grafici, confronto.csv
 ```
 
 ## Sviluppo
@@ -154,37 +192,41 @@ exports\<progetto>\<metodo>_<data>\   modello esportato
 .venv\Scripts\python -m pytest tests
 ```
 
-I test coprono la lettura dei log, la costruzione dei comandi, il registro dei run e i controlli
-prima dell'avvio; non richiedono la scheda grafica. `docs\audit.md` descrive la revisione che ha
-portato alla versione 0.1.0 e i punti ancora aperti.
+I test coprono l'analisi delle foto, la suddivisione training/test, la lettura dei log, la
+costruzione dei comandi, il registro dei run e i controlli prima dell'avvio; non richiedono la
+scheda grafica. `docs\audit.md` descrive le revisioni del programma e i punti ancora aperti.
 
 ## Software di terze parti
 
-Questo repository contiene solo il codice che coordina strumenti esistenti; non ne ridistribuisce
-nessuno.
+Il repository contiene solo il codice che coordina strumenti esistenti.
 
 | Software | Uso | Licenza |
 |---|---|---|
 | [COLMAP](https://colmap.github.io/) | allineamento, multi-view stereo, mesh | BSD 3-Clause |
-| [nerfstudio](https://docs.nerf.studio/) | training, valutazione, esportazione, viewer | Apache 2.0 |
+| [nerfstudio](https://docs.nerf.studio/) | training, esportazione, viewer | Apache 2.0 |
 | [gsplat](https://docs.gsplat.studio/) | rasterizzazione delle gaussiane | Apache 2.0 |
+| [gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting) (Inria) | implementazione originale di 3D Gaussian Splatting | licenza Inria/MPII, solo ricerca non commerciale |
+| [tiny-cuda-nn](https://github.com/NVlabs/tiny-cuda-nn) | codifiche veloci per NeRF | BSD 3-Clause |
 | [PyTorch](https://pytorch.org/) | calcolo su GPU | BSD 3-Clause |
 | [PySide6](https://doc.qt.io/qtforpython/) (Qt) | interfaccia grafica | LGPL v3 |
 | [FFmpeg](https://ffmpeg.org/) | ridimensionamento delle immagini | GPL v3 (build usata) |
-| [SuperSplat](https://github.com/playcanvas/supersplat) | pulizia dei gaussian splat, nel browser | MIT |
+| [SuperSplat](https://github.com/playcanvas/supersplat) | pulizia e pubblicazione dei gaussian splat | MIT |
 | [MeshLab](https://www.meshlab.net/) | visualizzazione della mesh | GPL v3 |
 
-### Rapporto con l'implementazione originale di 3D Gaussian Splatting
+### Uso dell'implementazione originale di 3D Gaussian Splatting
 
-Il metodo è quello di Kerbl et al. [1], la cui implementazione di riferimento è
-[graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting).
-Quel codice è distribuito da Inria e Max Planck Institut für Informatik con una licenza che ne
-consente l'uso solo per ricerca e valutazione, non commerciale, e chiede di citare la pubblicazione.
-L'uso che se ne fa in questo studio, ricerca accademica non commerciale, rientra in quei termini.
+Il codice [graphdeco-inria/gaussian-splatting](https://github.com/graphdeco-inria/gaussian-splatting)
+è distribuito da Inria e Max Planck Institut für Informatik con una licenza che ne consente l'uso
+**solo per ricerca e valutazione, non commerciale**, e chiede di citare la pubblicazione. L'uso che
+se ne fa in questo studio, ricerca accademica non commerciale, rientra in quei termini.
 
-Questo repository non contiene né esegue codice di quella implementazione: i gaussian splat sono
-allenati con gsplat, una reimplementazione indipendente con licenza Apache 2.0. La pubblicazione
-originale va comunque citata in ogni lavoro che usi questi risultati:
+Quel codice non fa parte di questo repository: l'installazione lo scarica dal repository originale,
+a un commit fissato. Alla release sono allegati, già compilati, due suoi moduli
+(`diff_gaussian_rasterization` e `simple_knn`): restano soggetti alla licenza Inria, allegata
+anch'essa, e non alla licenza Apache di questo repository. Chi usa lo strumento per scopi
+commerciali deve escludere il metodo `inria-3dgs`.
+
+La pubblicazione va citata in ogni lavoro che usi questi risultati:
 
 ```bibtex
 @Article{kerbl3Dgaussians,
@@ -213,4 +255,5 @@ originale va comunque citata in ogni lavoro che usi questi risultati:
 
 ## Licenza
 
-Per questo repository non è ancora stata scelta una licenza.
+Il codice di questo repository è distribuito con licenza [Apache 2.0](LICENSE). I componenti di terze
+parti mantengono le rispettive licenze, elencate sopra.

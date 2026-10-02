@@ -27,6 +27,17 @@ def ratio(pattern: str) -> Fraction:
     return parse
 
 
+def percent(pattern: str) -> Fraction:
+    """Avanzamento da righe che riportano una percentuale: il pattern la cattura."""
+    rx = re.compile(pattern)
+
+    def parse(line: str) -> Optional[float]:
+        m = rx.search(line)
+        return int(m.group(1)) / 100 if m else None
+
+    return parse
+
+
 def matching(line: str) -> Optional[float]:
     m = re.search(r"Processing block \[(\d+)/(\d+), (\d+)/(\d+)\]", line)
     if m:

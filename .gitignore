@@ -1,13 +1,15 @@
-# Ambiente e strumenti installati localmente (vedi README per ricrearli)
-.venv/
+# Ambiente e strumenti installati localmente (li scarica installa.ps1)
+.venv*/
 tools/
 
 # Foto originali e risultati: troppo grandi per il repository
+foto/
 foto dng/
 foto jpg/
 data/
 outputs/
 exports/
+reports/
 logs/
 confronto_*.csv
 

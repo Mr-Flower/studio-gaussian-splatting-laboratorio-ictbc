@@ -8,9 +8,11 @@ Layout su disco, relativo alla radice del repository:
 from __future__ import annotations
 
 import importlib.metadata
+import importlib.util
 import json
 import os
 import re
+import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -19,16 +21,18 @@ from . import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / "tools"
-VENV_SCRIPTS = ROOT / ".venv" / "Scripts"
+VENV_SCRIPTS = Path(sys.executable).parent  # gli eseguibili di nerfstudio dell'ambiente che esegue l'applicazione
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 PROJECT_NAME = re.compile(r"[A-Za-z0-9_-]+")
 
 
 @dataclass(frozen=True)
 class Method:
-    key: str  # nome del metodo in nerfstudio
+    key: str  # nome del metodo (per nerfstudio, quello passato a ns-train)
     label: str
     family: str  # "gaussian" | "nerf"
+    engine: str  # programma che lo allena: "nerfstudio" | "inria"
+    short: str  # etichetta breve per i grafici
     note: str
 
     @property
@@ -40,16 +44,21 @@ class Method:
         return "splat.ply" if self.family == "gaussian" else "point_cloud.ply"
 
 
+INRIA = "inria-3dgs"
+
 METHODS: Dict[str, Method] = {
     m.key: m
     for m in (
-        Method("splatfacto", "Gaussian splatting (splatfacto)", "gaussian",
+        Method("splatfacto", "Gaussian splatting (gsplat, splatfacto)", "gaussian", "nerfstudio", "3DGS gsplat",
                "3D Gaussian Splatting nell'implementazione gsplat. Veloce, modello esportabile in .ply."),
-        Method("splatfacto-big", "Gaussian splatting, alta qualità (splatfacto-big)", "gaussian",
+        Method("splatfacto-big", "Gaussian splatting, alta qualità (gsplat, splatfacto-big)", "gaussian",
+               "nerfstudio", "3DGS gsplat big",
                "Come splatfacto ma con più gaussiane: più dettaglio, più tempo e file più grandi."),
-        Method("nerfacto", "NeRF (nerfacto)", "nerf",
+        Method(INRIA, "Gaussian splatting originale (Inria)", "gaussian", "inria", "3DGS Inria",
+               "Implementazione di riferimento di Kerbl et al. 2023. Solo per uso di ricerca, non commerciale."),
+        Method("nerfacto", "NeRF (nerfacto)", "nerf", "nerfstudio", "NeRF nerfacto",
                "Campo di radianza neurale. Senza tiny-cuda-nn usa l'implementazione PyTorch, molto più lenta."),
-        Method("nerfacto-big", "NeRF, alta qualità (nerfacto-big)", "nerf",
+        Method("nerfacto-big", "NeRF, alta qualità (nerfacto-big)", "nerf", "nerfstudio", "NeRF nerfacto big",
                "Rete più grande di nerfacto: più qualità, tempi molto più lunghi."),
     )
 }
@@ -61,6 +70,7 @@ GROUPS: Dict[str, str] = {
     "eval": "Valutazione sulle viste escluse dal training (PSNR, SSIM, LPIPS)",
     "export": "Esportazione dei modelli",
     "mesh": "Fotogrammetria classica: nuvola densa e mesh (COLMAP, lenta)",
+    "report": "Report del confronto con grafici",
 }
 
 
@@ -128,6 +138,26 @@ def ns(command: str) -> str:
     return str(VENV_SCRIPTS / f"{command}.exe")
 
 
+def python() -> str:
+    """Interprete dell'ambiente (python.exe anche quando l'interfaccia gira con pythonw)."""
+    return str(VENV_SCRIPTS / "python.exe")
+
+
+def inria_repo() -> Path:
+    return TOOLS / "gaussian-splatting"
+
+
+def available_methods() -> Dict[str, Method]:
+    """Metodi utilizzabili su questa installazione: quello Inria richiede il suo codice e i moduli compilati."""
+    def usable(method: Method) -> bool:
+        if method.engine != "inria":
+            return True
+        return (inria_repo() / "train.py").exists() and all(
+            importlib.util.find_spec(module) for module in ("diff_gaussian_rasterization", "simple_knn"))
+
+    return {key: method for key, method in METHODS.items() if usable(method)}
+
+
 def environment() -> Dict[str, str]:
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join(
@@ -147,7 +177,7 @@ def missing_components() -> List[str]:
             missing.append(f"{label} (atteso in tools\\{pattern})")
     for command in ("ns-train", "ns-eval", "ns-export", "ns-process-data", "ns-viewer"):
         if not Path(ns(command)).exists():
-            missing.append(f"nerfstudio: {command} (atteso in .venv\\Scripts)")
+            missing.append(f"nerfstudio: {command} (atteso in {VENV_SCRIPTS})")
             break
     return missing
 
@@ -155,7 +185,8 @@ def missing_components() -> List[str]:
 def versions() -> Dict[str, str]:
     """Versioni dei componenti, salvate con ogni run per poterlo riprodurre."""
     out = {"app": __version__}
-    for package in ("nerfstudio", "gsplat", "torch"):
+    # tinycudann incide molto sui tempi dei metodi NeRF: va registrato se c'era o no.
+    for package in ("nerfstudio", "gsplat", "torch", "tinycudann"):
         try:
             out[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
@@ -164,4 +195,16 @@ def versions() -> Dict[str, str]:
         out["colmap"] = colmap_exe().parent.parent.name.replace("colmap-", "")
     except FileNotFoundError:
         out["colmap"] = "non installato"
+    out["gaussian-splatting-inria"] = _git_commit(inria_repo()) or "non installato"
     return out
+
+
+def _git_commit(repo: Path) -> str:
+    """Commit corrente di un repository clonato, letto senza eseguire git."""
+    try:
+        head = (repo / ".git" / "HEAD").read_text().strip()
+        if head.startswith("ref:"):
+            head = (repo / ".git" / head[5:].strip()).read_text().strip()
+        return head[:10]
+    except OSError:
+        return ""

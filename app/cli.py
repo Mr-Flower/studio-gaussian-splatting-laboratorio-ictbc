@@ -15,7 +15,7 @@ from typing import List, Optional
 
 from PySide6.QtCore import QCoreApplication, QTimer
 
-from . import __version__, config, pipeline, runs
+from . import __version__, config, photos, pipeline, runs
 from .config import GROUPS, METHODS, Settings
 from .runner import Runner
 
@@ -26,17 +26,29 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def common(command: argparse.ArgumentParser) -> None:
+        command.add_argument("--project", required=True, help="nome del progetto (cartella in data/)")
+        command.add_argument("--photos", help="cartella delle foto; se omessa usa quella salvata nel progetto")
+        command.add_argument("--iterations", type=int, help="iterazioni di training")
+        command.add_argument("--downscale", type=int, help="fattore di riduzione delle immagini (0 = automatico)")
+        command.add_argument("--camera", choices=["single", "per_folder", "per_image"])
+        command.add_argument("--matcher", choices=["exhaustive", "sequential"])
+        command.add_argument("--mesh-size", type=int, help="lato massimo delle immagini per la mesh, in pixel")
+
     run = sub.add_parser("run", help="esegue i passi della pipeline")
-    run.add_argument("--project", required=True, help="nome del progetto (cartella in data/)")
-    run.add_argument("--photos", help="cartella delle foto; se omessa usa quella salvata nel progetto")
+    common(run)
     run.add_argument("--steps", nargs="+", choices=list(GROUPS), default=["sfm", "train", "eval", "export"],
                      help="passi da eseguire (predefiniti: sfm train eval export)")
     run.add_argument("--methods", nargs="+", choices=list(METHODS), help="metodi da allenare e confrontare")
-    run.add_argument("--iterations", type=int, help="iterazioni di training")
-    run.add_argument("--downscale", type=int, help="fattore di riduzione delle immagini (0 = automatico)")
-    run.add_argument("--camera", choices=["single", "per_folder", "per_image"])
-    run.add_argument("--matcher", choices=["exhaustive", "sequential"])
-    run.add_argument("--mesh-size", type=int, help="lato massimo delle immagini per la mesh, in pixel")
+
+    test = sub.add_parser("test", help="allena e valuta tutti i metodi installati e genera il report del confronto")
+    common(test)
+    test.add_argument("--mesh", action="store_true", help="aggiunge la fotogrammetria classica (lenta)")
+
+    analyze = sub.add_parser("analyze", help="analizza le foto e propone quelle da escludere")
+    analyze.add_argument("--project", required=True)
+    analyze.add_argument("--photos", help="cartella delle foto; se omessa usa quella salvata nel progetto")
+    analyze.add_argument("--apply", action="store_true", help="esclude dall'allineamento le foto suggerite")
 
     report = sub.add_parser("report", help="mostra la tabella di confronto dei run di un progetto")
     report.add_argument("--project", required=True)
@@ -49,11 +61,29 @@ def _settings(args: argparse.Namespace) -> Settings:
     s.name = args.project
     if args.photos:
         s.photos = str(Path(args.photos).resolve())
-    for field, value in (("methods", args.methods), ("iterations", args.iterations), ("downscale", args.downscale),
-                         ("camera", args.camera), ("matcher", args.matcher), ("mesh_size", args.mesh_size)):
+    for field in ("methods", "iterations", "downscale", "camera", "matcher", "mesh_size"):
+        value = getattr(args, field, None)
         if value is not None:
             setattr(s, field, value)
     return s
+
+
+def _analyze(args: argparse.Namespace) -> int:
+    s = _settings(args)
+    if config.count_images(s.photos) == 0:
+        print("Indicare con --photos una cartella che contenga le foto.", file=sys.stderr)
+        return 2
+    s.save()
+    found = photos.analyze(Path(s.photos), s.scene,
+                           lambda done, total: print(f"\r  {done}/{total}", end="", flush=True))
+    print()
+    for photo in found:
+        if photo.reasons or photo.notes:
+            print(f"  {photo.name}: {'; '.join(photo.reasons + photo.notes)}")
+    if args.apply:
+        photos.set_excluded(s.scene, {photo.name for photo in found if photo.suggested})
+    print(photos.summary(found, photos.load_excluded(s.scene)))
+    return 0
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -62,7 +92,14 @@ def _run(args: argparse.Namespace) -> int:
         print("Componenti mancanti:\n  " + "\n  ".join(missing), file=sys.stderr)
         return 2
     s = _settings(args)
-    groups = [g for g in GROUPS if g in args.steps]  # nell'ordine di esecuzione
+    if args.command == "test":
+        s.methods = list(config.available_methods())
+        steps = ["train", "eval", "export", "report"] + (["mesh"] if args.mesh else [])
+        if args.photos or not pipeline.state(s)["sfm"]:
+            steps.append("sfm")
+    else:
+        steps = args.steps
+    groups = [g for g in GROUPS if g in steps]  # nell'ordine di esecuzione
     error = pipeline.validate(s, groups) or pipeline.acquire_lock(s.scene)
     if error:
         print(error, file=sys.stderr)
@@ -130,7 +167,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # la console di Windows puo' non avere tutti i caratteri
         stream.reconfigure(errors="replace")
     args = _parser().parse_args(argv)
-    return _run(args) if args.command == "run" else _report(args)
+    if args.command == "analyze":
+        return _analyze(args)
+    return _report(args) if args.command == "report" else _run(args)
 
 
 if __name__ == "__main__":

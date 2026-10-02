@@ -1,13 +1,17 @@
---extra-index-url https://download.pytorch.org/whl/cu118
---extra-index-url https://docs.gsplat.studio/whl/pt21cu118
+--extra-index-url https://download.pytorch.org/whl/cu124
+--extra-index-url https://docs.gsplat.studio/whl/pt24cu124
 --only-binary fpsample
 
 setuptools==69.5.1
 numpy<2
-torch==2.1.2+cu118
-torchvision==0.16.2+cu118
-gsplat==1.4.0+pt21cu118
+torch==2.4.1+cu124
+torchvision==0.19.1+cu124
+gsplat==1.4.0+pt24cu124
 nerfstudio==1.1.5
+matplotlib
+plyfile
+tqdm
+joblib
 psutil
 rawpy==0.27.1
 PySide6-Essentials==6.11.2

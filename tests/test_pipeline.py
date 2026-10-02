@@ -1,9 +1,11 @@
+import json
 import os
 
 import pytest
 
-from app import pipeline, runs
-from app.config import Settings
+from app import colmap_model, config, pipeline, runs
+from app import photos as photo_analysis
+from app.config import METHODS, Settings
 
 from .conftest import make_run, make_sparse_model
 
@@ -19,16 +21,74 @@ def labels(steps):
 
 
 def test_full_pipeline_order(workspace, photos):
-    steps = pipeline.build_steps(settings(photos), ["sfm", "train", "eval", "export", "mesh"])
+    steps = pipeline.build_steps(settings(photos), ["sfm", "train", "eval", "export", "mesh", "report"])
+    splat, nerf = METHODS["splatfacto"].label, METHODS["nerfacto"].label
     assert labels(steps) == [
         "Estrazione delle feature", "Matching tra le foto", "Ricostruzione delle camere",
         "Verifica dell'allineamento", "Conversione per nerfstudio",
-        "Training — Gaussian splatting (splatfacto)", "Valutazione — Gaussian splatting (splatfacto)",
-        "Esportazione — Gaussian splatting (splatfacto)",
-        "Training — NeRF (nerfacto)", "Valutazione — NeRF (nerfacto)", "Esportazione — NeRF (nerfacto)",
+        f"Training — {splat}", f"Valutazione — {splat}", f"Esportazione — {splat}",
+        f"Training — {nerf}", f"Valutazione — {nerf}", f"Esportazione — {nerf}",
         "Mesh: correzione delle immagini", "Mesh: mappe di profondità", "Mesh: fusione in nuvola densa",
         "Mesh: superficie di Poisson",
+        "Report del confronto",
     ]
+
+
+def test_excluded_photos_are_left_out_of_the_alignment(workspace, photos):
+    s = settings(photos)
+    photo_analysis.set_excluded(s.scene, {"img_1.jpg", "img_3.jpg"})
+    steps = pipeline.build_steps(s, ["sfm"])
+    steps[0].before()
+    command = steps[0].command()
+    image_list = command[command.index("--image_list_path") + 1]
+    assert open(image_list).read().split() == ["img_0.jpg", "img_2.jpg", "img_4.jpg"]
+
+    photo_analysis.set_excluded(s.scene, {"img_0.jpg", "img_1.jpg", "img_2.jpg"})
+    assert "meno di tre foto" in pipeline.validate(s, ["sfm"])
+
+
+@pytest.mark.parametrize("longest, requested, expected", [
+    (5280, 0, 4), (3072, 0, 2), (1600, 0, 1), (30000, 0, 8), (5280, 2, 2), (5280, 1, 1),
+])
+def test_training_resolution_is_the_same_rule_for_every_method(workspace, photos, longest, requested, expected):
+    s = settings(photos)
+    s.scene.mkdir(parents=True)
+    (s.scene / "transforms.json").write_text(json.dumps({"frames": [{"w": longest, "h": longest * 3 // 4}]}))
+    assert pipeline.training_factor(s.scene, requested) == expected
+
+
+def test_inria_method_steps(workspace, photos, monkeypatch):
+    s = settings(photos, methods=["inria-3dgs"])
+    make_sparse_model(s.scene / "colmap", "0", registered=5)
+    (s.scene / "transforms.json").write_text(json.dumps({"frames": [{"w": 5280, "h": 3956}]}))
+    (s.scene / colmap_model.SPLIT_FILE).write_text(json.dumps({"train": ["a"], "test": ["b"]}))
+    prepare, train, evaluate, export = pipeline.build_steps(s, ["train", "eval", "export"])
+
+    undistort = prepare.command()
+    dataset = s.scene / "inria_4"
+    assert undistort[1] == "image_undistorter" and undistort[undistort.index("--max_image_size") + 1] == "1320"
+    (dataset / "sparse").mkdir(parents=True)
+    (dataset / "sparse" / "cameras.bin").touch()
+    prepare.after(1.0)
+    assert (dataset / "sparse" / "0" / "cameras.bin").exists()
+    assert prepare.command() is None  # gia' pronta per questo allineamento: non si rifa'
+
+    command = train.command()
+    assert command[1] == "train.py" and train.cwd == config.inria_repo()
+    assert command[command.index("-s") + 1] == str(dataset) and "--eval" in command
+
+    run_dir = command[command.index("-m") + 1]
+    saved = os.path.join(run_dir, "point_cloud", "iteration_1000")
+    os.makedirs(saved)
+    open(os.path.join(saved, "point_cloud.ply"), "wb").write(b"ply\nelement vertex 7\nend_header\n")
+    train.after(60.0)
+    run = runs.latest_run("prova", "inria-3dgs")
+    assert run.trained_iterations() == 1000 and run.info()["engine"] == "inria"
+
+    assert evaluate.command()[3:5] == ["--engine", "inria"] and "--repo" in evaluate.command()
+    assert export.command() is None  # copia diretta del .ply, senza processo esterno
+    export.before()
+    assert runs.ply_elements(run.export_dir / "splat.ply") == 7
 
 
 def test_alignment_uses_colmap_4_options_and_camera_mode(workspace, photos):
@@ -68,8 +128,9 @@ def test_no_reconstruction_is_reported(workspace, photos):
 
 def test_training_command_and_run_record(workspace, photos):
     s = settings(photos, methods=["splatfacto"], downscale=2)
-    (s.scene / "images").mkdir(parents=True)
+    s.scene.mkdir(parents=True)
     (s.scene / "transforms.json").write_text('{"frames": []}')
+    (s.scene / colmap_model.SPLIT_FILE).write_text(json.dumps({"train": ["a", "b"], "test": ["c"]}))
     train, evaluate, export = pipeline.build_steps(s, ["train", "eval", "export"])
 
     command = train.command()
@@ -83,8 +144,11 @@ def test_training_command_and_run_record(workspace, photos):
     info = run.info()
     assert info["train_seconds"] == 123.4 and info["iterations"] == 1000 and info["downscale"] == 2
     assert info["alignment"] == runs.alignment_id(s.scene) and run.comparable() is True
+    assert (info["train_images"], info["test_images"]) == (2, 1)
 
-    assert evaluate.command()[-1] == str(run.path / "metrics.json")
+    # Stessa valutazione per tutti i metodi: il nostro modulo, non quello del programma di training.
+    assert evaluate.command()[1:5] == ["-m", "app.evaluate", "--engine", "nerfstudio"]
+    assert evaluate.command()[evaluate.command().index("--run") + 1] == str(run.path)
     assert export.command()[1] == "gaussian-splat" and export.command()[-1] == str(run.export_dir)
 
 
@@ -111,6 +175,7 @@ def test_runs_from_a_previous_alignment_are_not_evaluated(workspace, photos):
     s = settings(photos, methods=["splatfacto"])
     s.scene.mkdir(parents=True)
     (s.scene / "transforms.json").write_text("nuovo allineamento")
+    (s.scene / colmap_model.SPLIT_FILE).write_text("{}")
     run_dir = make_run(workspace, "prova", "splatfacto", "2026-01-01_000000")
     runs.update_json(run_dir / runs.RUN_FILE, alignment="impronta-vecchia")
     (evaluate,) = pipeline.build_steps(s, ["eval"])
