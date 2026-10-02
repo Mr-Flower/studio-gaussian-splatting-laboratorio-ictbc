@@ -1,0 +1,14 @@
+# Ambiente e strumenti installati localmente (vedi README per ricrearli)
+.venv/
+tools/
+
+# Foto originali e risultati: troppo grandi per il repository
+foto dng/
+foto jpg/
+data/
+outputs/
+exports/
+
+__pycache__/
+*.pyc
+.claude/
