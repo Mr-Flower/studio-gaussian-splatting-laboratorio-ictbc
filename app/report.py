@@ -282,6 +282,13 @@ def build(project: str) -> Path:
                      "correzione delle pose o aspetto per foto): "
                      + html.escape("; ".join(f"{config.METHODS[r.method].label} del {r.timestamp[:10]}" for r in left_out))
                      + ". Sono nella tabella completa.</p>") if left_out else ""
+    groups = runs.condition_groups([run for run in runs.list_runs(project) if run.method in config.METHODS])
+    repeated = {key: len(found) for key, found in (groups[0].items() if groups else []) if len(found) > 1}
+    if repeated:
+        left_out_html += ("<p class='note'>Ripetizioni nelle stesse condizioni (semi diversi): "
+                          + html.escape("; ".join(f"{config.METHODS[k].label}: {n} run" for k, n in repeated.items()))
+                          + ". Qui compare il più recente; medie e variabilità tra i run sono in "
+                          "<code>python -m app.paper</code>.</p>")
     from_disk = [e["label"] for e in entries if e["info"].get("photos_in") == "disk"]
     if from_disk:
         left_out_html += ("<p class='note'>Foto lette dal disco durante il training (non entravano in memoria): "

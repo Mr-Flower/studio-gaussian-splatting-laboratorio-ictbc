@@ -124,7 +124,7 @@ def test_training_commands_when_photos_are_read_from_disk(workspace, photos):
     assert command.index("--pipeline.datamanager.train-num-images-to-sample-from") < command.index("nerfstudio-data")
 
     command = inria.command()
-    assert command[1].endswith("inria_lazy.py") and command[2] == "train.py"
+    assert command[1].endswith("inria_avvio.py") and command[2:4] == ["--disco", "train.py"]
     assert command[command.index("-r") + 1] == "1"
 
     # Le varianti sono note a nerfstudio tramite l'ambiente dei processi, e 'app' deve essere importabile.
@@ -395,3 +395,47 @@ def test_gpu_peak_keeps_the_highest_reading():
     for reading in ("1200", "5300", "N/A", "4100"):
         monitor.feed(reading + "\n")
     assert monitor.peak == max(first, 5300)
+
+
+@pytest.mark.parametrize("seed", [None, 7])
+def test_seed_reaches_every_training_program(workspace, photos, seed):
+    s = settings(photos, methods=["splatfacto", "inria-3dgs"], downscale=2, seed=seed)
+    make_sparse_model(s.scene / "colmap", "0", registered=5)
+    aligned(s, images=40, width=800, height=600)
+    splat, _, inria = pipeline.build_steps(s, ["train"])
+    command = splat.command()
+    assert (command[command.index("--machine.seed") + 1] == "7") if seed else "--machine.seed" not in command
+    command = inria.command()
+    if seed:  # il codice Inria fissa il seme a 0: lo si cambia con il lanciatore, senza modificarlo
+        assert command[1].endswith("inria_avvio.py") and command[2:5] == ["--seme", "7", "train.py"]
+    else:
+        assert command[1] == "train.py"
+
+    timestamp = command[command.index("-m") + 1].rsplit(os.sep, 1)[-1]
+    saved = os.path.join(command[command.index("-m") + 1], "point_cloud", "iteration_1000")
+    os.makedirs(saved)
+    open(os.path.join(saved, "point_cloud.ply"), "wb").write(b"ply\nelement vertex 7\nend_header\n")
+    inria.after(1.0)
+    assert runs.Run("prova", "inria-3dgs", timestamp).info()["seed"] == (7 if seed else 0)  # 0: quello di Inria
+
+
+def test_inria_launcher_reseeds_after_safe_state(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("torch")
+    from app import inria_avvio
+
+    (tmp_path / "utils").mkdir()
+    (tmp_path / "utils" / "__init__.py").write_text("")
+    (tmp_path / "utils" / "general_utils.py").write_text(
+        "import random\ndef safe_state(silent):\n    random.seed(0)\n")
+    (tmp_path / "train.py").write_text(
+        "import random, sys\nfrom utils.general_utils import safe_state\nsafe_state(False)\n"
+        "print('argomenti', sys.argv[1:], 'valore', random.random())\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.path", list(__import__("sys").path))
+    for name in ("utils", "utils.general_utils"):
+        monkeypatch.delitem(__import__("sys").modules, name, raising=False)
+    inria_avvio.main(["--seme", "7", "train.py", "-s", "dati", "--eval"])
+    out = capsys.readouterr().out
+    import random
+    # Gli argomenti arrivano allo script e il primo numero casuale e' quello del seme 7, non dello 0 di safe_state.
+    assert "['-s', 'dati', '--eval']" in out and f"valore {random.Random(7).random()}" in out

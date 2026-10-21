@@ -125,6 +125,7 @@ class Settings:
     # condizioni: pose di COLMAP non corrette e nessuna compensazione dell'aspetto per foto.
     pose_refinement: bool = False  # correzione delle pose durante il training (camera optimizer SO3xR3)
     appearance_embedding: bool = False  # solo NeRF: un vettore di aspetto per foto (luce, sviluppo)
+    seed: Optional[int] = None  # seme dei numeri casuali; None = quello del programma di training
 
     @property
     def quality(self) -> Optional[str]:

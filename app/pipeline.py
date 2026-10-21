@@ -245,6 +245,8 @@ def image_size(s: Settings) -> int:
 # su 25 GB occupati in tutto, con una scheda da 48 GB.
 MEMORY_SHARE = 0.5
 FACTORS = (1, 2, 4, 8)
+# Semi che i programmi di training usano se non se ne indica uno.
+DEFAULT_SEED = {"nerfstudio": 42, "inria": 0}
 NERF_REPEAT = 200  # iterazioni dopo le quali un NeRF che carica le foto a gruppi cambia gruppo
 
 
@@ -321,6 +323,12 @@ def protocol_options(s: Settings, method: Method) -> List[str]:
     if method.family == "nerf":
         options += ["--pipeline.model.use-appearance-embedding", str(s.appearance_embedding)]
     return options
+
+
+def inria_launcher(s: Settings, method: Method) -> List[str]:
+    """Lanciatore e sue opzioni da mettere prima di train.py; nessuno se non servono."""
+    options = (["--disco"] if placement(s, method) == "disk" else []) + ([] if s.seed is None else ["--seme", str(s.seed)])
+    return [str(config.ROOT / "app" / "inria_avvio.py"), *options] if options else []
 
 
 def run_conditions(info: Dict) -> Tuple:
@@ -421,6 +429,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             trained.update(method=method.key, family=method.family, engine=method.engine, iterations=s.iterations,
                            photos_in=placement(s, method),
                            pose_refinement=s.pose_refinement, appearance_embedding=s.appearance_embedding,
+                           seed=DEFAULT_SEED[method.engine] if s.seed is None else s.seed,
                            downscale=training_factor(s), train_seconds=round(seconds, 1),
                            alignment=runs.alignment_id(scene), train_images=len(split["train"]),
                            test_images=len(split["test"]), gpu=gpu_name(), versions=config.versions(),
@@ -447,10 +456,9 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             steps.append(Step(
                 "train", f"Training — {method.label}",
                 # -r 1: le foto sono gia' alla risoluzione voluta; senza, il codice Inria le riduce a 1600 px.
-                # Se le foto non entrano in memoria, train.py parte tramite inria_lazy, che le legge dal disco.
-                lambda: [config.python(),
-                         *([str(config.ROOT / "app" / "inria_lazy.py")] if placement(s, method) == "disk" else []),
-                         "train.py", "-s", str(inria_dataset(scene, training_factor(s))),
+                # Per leggere le foto dal disco o cambiare il seme, train.py parte tramite inria_avvio,
+                # che interviene senza modificare il codice Inria; altrimenti parte com'e'.
+                lambda: [config.python(), *inria_launcher(s, method), "train.py", "-s", str(inria_dataset(scene, training_factor(s))),
                          "-m", str(trained.path), "--eval", "-r", "1",
                          "--data_device", "cuda" if placement(s, method) == "gpu" else "cpu",
                          "--iterations", str(s.iterations),
@@ -483,6 +491,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                          "--timestamp", trained.timestamp, "--max-num-iterations", str(s.iterations),
                          "--viewer.quit-on-train-completion", "True",
                          *memory_options(), *protocol_options(s, method),
+                         *([] if s.seed is None else ["--machine.seed", str(s.seed)]),
                          "nerfstudio-data", "--downscale-factor", str(training_factor(s))],
                 progress.train, detail=progress.train_detail(s.iterations), quiet=progress.is_train_table,
                 before=ensure_split, after=record_training, on_gpu_peak=record_gpu_peak))

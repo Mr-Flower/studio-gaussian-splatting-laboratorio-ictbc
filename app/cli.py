@@ -45,6 +45,8 @@ def _parser() -> argparse.ArgumentParser:
                              help="metodi nerfstudio: correzione delle pose durante il training")
         command.add_argument("--appearance-embedding", action="store_true",
                              help="NeRF: un vettore di aspetto per foto (compensa luce e sviluppo)")
+        command.add_argument("--seed", type=int,
+                             help="seme dei numeri casuali, per ripetere un run (senza: quello del programma di training)")
 
     run = sub.add_parser("run", help="esegue i passi della pipeline")
     common(run)
@@ -76,7 +78,7 @@ def _settings(args: argparse.Namespace) -> Settings:
         s.photos = str(Path(args.photos).resolve())
     if getattr(args, "quality", None):
         s.set_quality(args.quality)
-    for field in ("pose_refinement", "appearance_embedding"):
+    for field in ("pose_refinement", "appearance_embedding", "seed"):
         if hasattr(args, field):
             setattr(s, field, getattr(args, field))
     for field in ("methods", "iterations", "downscale", "max_side", "camera", "matcher", "mesh_size"):

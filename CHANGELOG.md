@@ -25,6 +25,12 @@
   e PNG (camere viste dall'alto, qualità rispetto all'ora di scatto, JPG contro DNG) e `numeri.json`
   con tutti i numeri citabili. Legge solo i file già prodotti. Con più run dello stesso metodo nelle
   stesse condizioni usa la media per vista tra i run.
+- **Ripetizioni con seme** (`--seed N` in `run` e `test`): nerfstudio lo riceve con `--machine.seed`, il
+  codice Inria tramite `app/inria_avvio.py`, che reimposta il seme subito dopo `safe_state` senza
+  modificare il codice. Il seme usato è in `run.json` (senza `--seed`: 42 per nerfstudio, 0 per
+  Inria). Report e `app/paper.py` raggruppano i run che differiscono solo per il seme. Lo stesso
+  seme non dà risultati identici: sulla scheda grafica restano differenze (su 40 foto, splatfacto
+  18,40 e 18,03 dB con lo stesso seme; Inria 19,33 e 19,33).
 - Lettura di camere e pose dai modelli COLMAP (`colmap_model.read_cameras`, `read_poses`).
 - Picco di memoria della scheda grafica durante ogni training (`gpu_peak_mb` in `run.json`, letto
   con `nvidia-smi` ogni 2 secondi; comprende gli altri programmi che usano la scheda).

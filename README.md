@@ -127,7 +127,9 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
   metodi nelle stesse condizioni (punto 6); il suo effetto si misura con un run a parte.
 - Il picco di memoria della scheda grafica è letto con `nvidia-smi` e comprende gli altri programmi
   che la usano in quel momento.
-- Ogni configurazione è eseguita una volta: la variabilità tra esecuzioni ripetute non è stimata.
+- La variabilità tra esecuzioni si stima ripetendo i run con semi diversi (`--seed`); anche con lo
+  stesso seme i risultati non sono identici, per il non-determinismo dei calcoli sulla scheda
+  grafica, più marcato in gsplat che nel codice Inria.
 - Sono confrontabili solo i run fatti sullo stesso allineamento; se viene rifatto, i run precedenti
   sono segnalati ed esclusi dal report.
 

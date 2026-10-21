@@ -107,7 +107,8 @@ Riguarda due asimmetrie tra i metodi, verificate sul codice di nerfstudio 1.1.5.
   penalizza le metriche.
 - **Foto estranee al soggetto**: l'analisi non le riconosce (nel caso di studio, una foto di gruppo
   è stata tolta a mano).
-- **Ripetizioni**: ogni configurazione è eseguita una volta; la variabilità tra esecuzioni non è stimata.
+- **Ripetizioni**: con `--seed` si ripetono i run e `app/paper.py` ne riporta media e deviazione
+  standard; lo stesso seme non garantisce risultati identici (non-determinismo della scheda grafica).
 - **Installazione**: provata su una sola macchina. Lo scaricamento dei moduli compilati dalla
   release richiede che il repository sia pubblico.
 - **Palette dei grafici**: è quella di riferimento, documentata come distinguibile anche con
