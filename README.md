@@ -98,11 +98,18 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
    iterazioni, la modalità prevista da nerfstudio per i set grandi. Modello, ottimizzazione e
    rendering non cambiano; cambia il tempo di training, che include la lettura. Ogni run registra
    come sono state caricate le foto.
-6. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
+6. **Pose e aspetto.** Per default nerfstudio fa correggere ai NeRF le pose delle camere durante il
+   training e dà a ogni foto un vettore di aspetto che assorbe differenze di luce e di sviluppo. Il
+   3DGS non fa né l'una né l'altra cosa, e la valutazione usa comunque le pose di COLMAP non
+   corrette. Nel confronto principale entrambe le opzioni sono quindi spente per tutti i metodi;
+   si possono riattivare («Opzioni avanzate», `--pose-refinement`, `--appearance-embedding`) per
+   misurarne l'effetto, e i run fatti con opzioni diverse non vengono mescolati.
+7. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
    calcolano PSNR, SSIM [8] e LPIPS [9] (rete AlexNet) con lo stesso codice per tutti i metodi. La
    velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima.
-7. **Tracciabilità.** Ogni run salva parametri, durata di ogni passo, scheda grafica, versioni dei
-   componenti e l'impronta dell'allineamento usato.
+8. **Tracciabilità.** Ogni run salva parametri, opzioni di protocollo, durata di ogni passo, picco di
+   memoria della scheda grafica, scheda grafica, versioni dei componenti e l'impronta
+   dell'allineamento usato.
 
 ### Limiti
 
@@ -112,7 +119,11 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
 - L'immagine vera con cui si confronta ogni vista è preparata dal programma che ha allenato il
   modello: nerfstudio e il codice Inria correggono la distorsione dell'obiettivo con procedure
   diverse, quindi le immagini di riferimento coincidono nel contenuto ma non pixel per pixel.
-- Nessuno dei metodi configurati compensa le differenze di esposizione tra le foto.
+- Nel confronto principale nessun metodo compensa le differenze di luce e di sviluppo tra le foto.
+  nerfacto potrebbe farlo con il suo vettore di aspetto per foto, spento per default per tenere i
+  metodi nelle stesse condizioni (punto 6); il suo effetto si misura con un run a parte.
+- Il picco di memoria della scheda grafica è letto con `nvidia-smi` e comprende gli altri programmi
+  che la usano in quel momento.
 - Ogni configurazione è eseguita una volta: la variabilità tra esecuzioni ripetute non è stimata.
 - Sono confrontabili solo i run fatti sullo stesso allineamento; se viene rifatto, i run precedenti
   sono segnalati ed esclusi dal report.
@@ -215,7 +226,7 @@ una superficie in `.glb` serve la mesh della fotogrammetria classica.
 .venv\Scripts\python -m app.cli run --project arco --steps train eval export --methods splatfacto inria-3dgs
 
 # conversione di un modello esportato in nuvola di punti o in GLB
-.venv\Scripts\python -m app.convert exportsrco\splatfacto_<data>\splat.ply punti.glb
+.venv\Scripts\python -m app.convert exports\arco\splatfacto_<data>\splat.ply punti.glb
 
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv

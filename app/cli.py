@@ -40,6 +40,11 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--camera", choices=["auto", "single", "per_folder", "per_image"])
         command.add_argument("--matcher", choices=["exhaustive", "sequential"])
         command.add_argument("--mesh-size", type=int, help="lato massimo delle immagini per la mesh, in pixel")
+        # Sempre esplicite: senza l'opzione valgono False anche se il progetto le aveva attive.
+        command.add_argument("--pose-refinement", action="store_true",
+                             help="metodi nerfstudio: correzione delle pose durante il training")
+        command.add_argument("--appearance-embedding", action="store_true",
+                             help="NeRF: un vettore di aspetto per foto (compensa luce e sviluppo)")
 
     run = sub.add_parser("run", help="esegue i passi della pipeline")
     common(run)
@@ -71,6 +76,9 @@ def _settings(args: argparse.Namespace) -> Settings:
         s.photos = str(Path(args.photos).resolve())
     if getattr(args, "quality", None):
         s.set_quality(args.quality)
+    for field in ("pose_refinement", "appearance_embedding"):
+        if hasattr(args, field):
+            setattr(s, field, getattr(args, field))
     for field in ("methods", "iterations", "downscale", "max_side", "camera", "matcher", "mesh_size"):
         value = getattr(args, field, None)
         if value is not None:

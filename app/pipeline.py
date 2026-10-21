@@ -33,6 +33,7 @@ class Step:
     on_line: Optional[Callable[[str], None]] = None
     quiet: Optional[Callable[[str], bool]] = None  # righe da non mostrare nel log a video
     before: Optional[Callable[[], None]] = None
+    on_gpu_peak: Optional[Callable[[int], None]] = None  # riceve il picco di memoria grafica del passo, in MB
     snapshot: Optional[Callable[[], Optional[Path]]] = None  # modello parziale gia' guardabile, se ce n'e' uno
     after: Optional[Callable[[float], None]] = None  # riceve la durata del passo in secondi
 
@@ -309,6 +310,32 @@ def nerf_group(s: Settings) -> int:
     return max(4, min(int(ram * MEMORY_SHARE / (3 * one)), train))
 
 
+def protocol_options(s: Settings, method: Method) -> List[str]:
+    """Opzioni di protocollo per ns-train, sempre esplicite anche quando coincidono con il default del metodo.
+
+    Il codice Inria non corregge le pose e non ha un aspetto per foto: per lui non ci sono opzioni.
+    """
+    if method.engine != "nerfstudio":
+        return []
+    options = ["--pipeline.model.camera-optimizer.mode", "SO3xR3" if s.pose_refinement else "off"]
+    if method.family == "nerf":
+        options += ["--pipeline.model.use-appearance-embedding", str(s.appearance_embedding)]
+    return options
+
+
+def run_conditions(info: Dict) -> Tuple:
+    """Condizioni che devono coincidere perche' due run siano confrontabili.
+
+    Le opzioni di protocollo sono quelle chieste per il confronto, non quelle che il metodo ha potuto
+    applicare (il codice Inria non corregge mai le pose). I run fatti prima che venissero registrate
+    seguono i default di allora: per i NeRF pose corrette e aspetto per foto (default di nerfstudio),
+    per il 3DGS nessuna delle due.
+    """
+    nerf = info.get("family") == "nerf"
+    return (info.get("downscale"), info.get("iterations"),
+            info.get("pose_refinement", nerf), info.get("appearance_embedding", nerf))
+
+
 def camera_mode(s: Settings, names: List[str]) -> str:
     """Con «auto»: una camera per sottocartella se le foto sono divise in sottocartelle, altrimenti una sola."""
     if s.camera != "auto":
@@ -393,10 +420,14 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             split = colmap_model.read_split(scene)
             trained.update(method=method.key, family=method.family, engine=method.engine, iterations=s.iterations,
                            photos_in=placement(s, method),
+                           pose_refinement=s.pose_refinement, appearance_embedding=s.appearance_embedding,
                            downscale=training_factor(s), train_seconds=round(seconds, 1),
                            alignment=runs.alignment_id(scene), train_images=len(split["train"]),
                            test_images=len(split["test"]), gpu=gpu_name(), versions=config.versions(),
                            finished=time.strftime("%Y-%m-%dT%H:%M:%S"))
+
+        def record_gpu_peak(megabytes: int) -> None:
+            trained.update(gpu_peak_mb=megabytes)
 
         def latest_snapshot() -> Optional[Path]:
             return trained.checkpoint()
@@ -427,7 +458,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                          "--test_iterations", str(s.iterations), "--disable_viewer"],
                 progress.percent(r"Training progress:\s*(\d+)%"),
                 cwd=config.inria_repo(), quiet=lambda line: "Training progress" in line, after=record_training,
-                on_line=keep_latest_snapshot, snapshot=latest_snapshot))
+                on_line=keep_latest_snapshot, snapshot=latest_snapshot, on_gpu_peak=record_gpu_peak))
         else:
             # --method-name: senza, le varianti "-big" scrivono nella cartella del metodo base
             # (per nerfstudio splatfacto-big si chiama "splatfacto") e i run si confonderebbero.
@@ -451,10 +482,10 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
                          "--method-name", ns_name(),
                          "--timestamp", trained.timestamp, "--max-num-iterations", str(s.iterations),
                          "--viewer.quit-on-train-completion", "True",
-                         *memory_options(),
+                         *memory_options(), *protocol_options(s, method),
                          "nerfstudio-data", "--downscale-factor", str(training_factor(s))],
                 progress.train, detail=progress.train_detail(s.iterations), quiet=progress.is_train_table,
-                before=ensure_split, after=record_training))
+                before=ensure_split, after=record_training, on_gpu_peak=record_gpu_peak))
 
     if "eval" in groups:
         steps.append(Step(

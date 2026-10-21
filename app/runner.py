@@ -33,6 +33,54 @@ def clean(raw: bytes) -> str:
     return ANSI.sub("", raw.decode("utf-8", "replace")).rstrip()
 
 
+class GpuMonitor(QObject):
+    """Legge ogni 2 secondi la memoria occupata sulla scheda grafica e ne tiene il massimo.
+
+    La lettura e' un processo nvidia-smi gestito dal ciclo degli eventi di Qt, senza thread: un
+    thread Python qui resterebbe quasi fermo mentre gira il ciclo degli eventi. nvidia-smi riporta
+    la memoria occupata da tutti i processi, non solo dal training: il picco include quindi anche
+    gli altri programmi aperti in quel momento (browser, viewer, desktop).
+    """
+
+    INTERVAL_MS = 2000
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.peak = 0
+        self.proc: Optional[QProcess] = None
+        self.timer = QTimer(self, interval=self.INTERVAL_MS)
+        self.timer.timeout.connect(self._read)
+        self.timer.start()
+        self._read()
+
+    def _read(self) -> None:
+        if self.proc is not None:  # la lettura precedente non e' ancora terminata
+            return
+        self.proc = QProcess(self)
+        self.proc.finished.connect(self._parse)
+        self.proc.errorOccurred.connect(lambda _error: self._parse())
+        self.proc.start("nvidia-smi", ["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
+
+    def _parse(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        self.feed(bytes(proc.readAllStandardOutput()).decode("ascii", "replace"))
+        proc.deleteLater()
+
+    def feed(self, text: str) -> None:
+        values = [int(x) for x in text.split() if x.strip().isdigit()]
+        if values:
+            self.peak = max(self.peak, max(values))
+
+    def stop(self) -> int:
+        self.timer.stop()
+        if self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning:
+            self.proc.waitForFinished(5000)  # l'ultima lettura, se e' in corso
+            self._parse()
+        return self.peak
+
+
 class Runner(QObject):
     line = Signal(str)  # riga da mostrare nel log
     step_started = Signal(int, int, str)  # indice, totale, etichetta
@@ -48,6 +96,7 @@ class Runner(QObject):
         self.buffer = b""
         self.stopped = False
         self.active = False
+        self.gpu_monitor: Optional[GpuMonitor] = None
         self.step_start = 0.0
         self.log = None
 
@@ -68,6 +117,9 @@ class Runner(QObject):
 
     def _finish(self, ok: bool, message: str) -> None:
         self.active = False
+        if self.gpu_monitor:
+            self.gpu_monitor.stop()
+            self.gpu_monitor = None
         if self.proc is not None:
             self.proc.deleteLater()
             self.proc = None
@@ -97,6 +149,9 @@ class Runner(QObject):
         self.buffer = b""
         self.out_of_memory = False
         self.step_start = time.monotonic()
+        if self.gpu_monitor:
+            self.gpu_monitor.stop()
+        self.gpu_monitor = GpuMonitor(self) if step.on_gpu_peak else None
         if command is None:  # passo senza processo esterno: il lavoro e' gia' stato fatto in `before`
             self._write(f"\n=== {step.label} ===")
             QTimer.singleShot(0, self._completed)
@@ -173,10 +228,15 @@ class Runner(QObject):
             return
         step = self.steps[self.index]
         seconds = time.monotonic() - self.step_start
-        self._write(f"--- {step.label}: {seconds:.0f} s", show=False)
+        peak = self.gpu_monitor.stop() if self.gpu_monitor else None
+        self.gpu_monitor = None
+        self._write(f"--- {step.label}: {seconds:.0f} s" + (f", picco di memoria grafica {peak} MB" if peak else ""),
+                    show=False)
         try:
             if step.after:
                 step.after(seconds)
+            if step.on_gpu_peak and peak:
+                step.on_gpu_peak(peak)
         except Exception as exc:
             self._finish(False, f"{step.label}: {exc}")
             return

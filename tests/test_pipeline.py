@@ -330,3 +330,68 @@ def test_project_lock(workspace, photos, monkeypatch):
     assert pipeline.acquire_lock(scene) is None
     pipeline.release_lock(scene)
     assert not (scene / ".lock").exists()
+
+
+@pytest.mark.parametrize("pose, appearance", [(False, False), (True, True), (True, False)])
+def test_protocol_options_are_always_explicit(workspace, photos, pose, appearance):
+    s = settings(photos, methods=["splatfacto", "nerfacto-big", "inria-3dgs"], downscale=2,
+                 pose_refinement=pose, appearance_embedding=appearance)
+    aligned(s, images=40, width=800, height=600)
+    splat, nerf, _, inria = pipeline.build_steps(s, ["train"])
+
+    def option(command, name):
+        return command[command.index(name) + 1] if name in command else None
+
+    mode = "SO3xR3" if pose else "off"
+    for command in (splat.command(), nerf.command()):
+        assert option(command, "--pipeline.model.camera-optimizer.mode") == mode
+        assert command.index("--pipeline.model.camera-optimizer.mode") < command.index("nerfstudio-data")
+    assert option(splat.command(), "--pipeline.model.use-appearance-embedding") is None  # solo i NeRF
+    assert option(nerf.command(), "--pipeline.model.use-appearance-embedding") == str(appearance)
+    assert not any("camera-optimizer" in part or "appearance" in part for part in inria.command())
+
+    # Le opzioni chieste finiscono nel run, anche per il metodo Inria che non puo' applicarle.
+    timestamp = option(nerf.command(), "--timestamp")
+    make_run(workspace, "prova", "nerfacto-big", timestamp)
+    nerf.after(1.0)
+    info = runs.latest_run("prova", "nerfacto-big").info()
+    assert (info["pose_refinement"], info["appearance_embedding"]) == (pose, appearance)
+
+
+def test_runs_with_different_protocol_options_are_not_compared(workspace):
+    scene = workspace / "data" / "prova"
+    scene.mkdir(parents=True)
+    (scene / "transforms.json").write_text("allineamento")
+
+    def trained(method, timestamp, family, age, **options):
+        run_dir = make_run(workspace, "prova", method, timestamp)
+        os.utime(next((run_dir / "nerfstudio_models").iterdir()), (10000 - age, 10000 - age))
+        runs.update_json(run_dir / runs.RUN_FILE, family=family, downscale=1, iterations=30000,
+                         alignment=runs.alignment_id(scene), **options)
+        (run_dir / runs.METRICS_FILE).write_text(json.dumps({"results": {"psnr": 20.0}}))
+
+    # Run della 0.3: senza le opzioni registrate. Per il 3DGS equivalgono a opzioni spente.
+    trained("splatfacto", "2026-01-01_000000", "gaussian", age=5)
+    # NeRF della 0.3: valevano i default di nerfstudio, pose corrette e aspetto per foto.
+    trained("nerfacto", "2026-01-02_000000", "nerf", age=4)
+    trained("nerfacto-big", "2026-01-03_000000", "nerf", age=3, pose_refinement=False, appearance_embedding=False)
+    trained("splatfacto-big", "2026-01-04_000000", "gaussian", age=2, pose_refinement=False, appearance_embedding=False)
+
+    group = runs.comparable_group(runs.list_runs("prova"))
+    assert sorted(r.method for r in group) == ["nerfacto-big", "splatfacto", "splatfacto-big"]
+    assert pipeline.run_conditions({"family": "nerf"})[2:] == (True, True)
+    assert pipeline.run_conditions({"family": "gaussian"})[2:] == (False, False)
+
+
+def test_gpu_peak_keeps_the_highest_reading():
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import QCoreApplication
+    from app import runner
+
+    app = QCoreApplication.instance() or QCoreApplication([])  # noqa: F841 - serve agli oggetti Qt
+    monitor = runner.GpuMonitor()
+    monitor.stop()  # la prima lettura vera, se c'e' una scheda, si aggiunge alle altre
+    first = monitor.peak
+    for reading in ("1200", "5300", "N/A", "4100"):
+        monitor.feed(reading + "\n")
+    assert monitor.peak == max(first, 5300)

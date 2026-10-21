@@ -1,5 +1,27 @@
 # Registro delle modifiche
 
+## 0.4.0 — 2026-10-21
+
+### Cambiamenti che incidono sui risultati
+
+- **Correzione delle pose spenta per default** nei metodi nerfstudio: nerfacto e nerfacto-big la
+  avevano attiva, ma la valutazione usa le pose di COLMAP, quindi i NeRF erano penalizzati. Opzione
+  «Correggi le pose» in «Opzioni avanzate», `--pose-refinement` da riga di comando.
+- **Vettore di aspetto per foto spento per default** nei NeRF: compensava differenze di luce e di
+  sviluppo che il 3DGS non può compensare. Opzione in «Opzioni avanzate», `--appearance-embedding`.
+- Le due opzioni sono passate sempre in modo esplicito a `ns-train`, registrate in `run.json` e
+  fanno parte delle condizioni con cui il report decide quali run confrontare. I run precedenti
+  valgono con i default di allora: NeRF con entrambe attive, 3DGS con entrambe spente.
+
+### Novità
+
+- Picco di memoria della scheda grafica durante ogni training (`gpu_peak_mb` in `run.json`, letto
+  con `nvidia-smi` ogni 2 secondi; comprende gli altri programmi che usano la scheda).
+
+### Correzioni
+
+- README: nel comando di conversione un carattere di controllo aveva sostituito `\a`.
+
 ## 0.3.1 — 2026-10-02
 
 - **Il modello si può guardare in qualsiasi momento.** Il viewer dei modelli già creati si apre

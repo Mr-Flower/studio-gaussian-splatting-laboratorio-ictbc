@@ -308,6 +308,12 @@ class MainWindow(QMainWindow):
         self.mesh_check = QCheckBox("Crea anche la mesh con la fotogrammetria classica (lenta)")
         self.mesh_check.setToolTip("Multi-view stereo e superficie di Poisson. Con centinaia di foto richiede molte ore.")
         self.mesh_size = self._combo([("1000 px (veloce)", 1000), ("1600 px", 1600), ("2400 px (molto lenta)", 2400)])
+        self.pose_check = QCheckBox("Metodi nerfstudio: correggi le pose delle camere durante il training")
+        self.pose_check.setToolTip("Default di nerfstudio per i NeRF. La valutazione usa comunque le pose di COLMAP, "
+                                   "quindi spenta (default qui) tutti i metodi sono nelle stesse condizioni.")
+        self.appearance_check = QCheckBox("NeRF: compensa luce e sviluppo diversi tra le foto (aspetto per foto)")
+        self.appearance_check.setToolTip("Default di nerfstudio per nerfacto. Il 3DGS non ha nulla di simile: spenta "
+                                         "(default qui) i metodi sono confrontabili.")
         self.advanced_box = QGroupBox("Opzioni avanzate")
         form = QFormLayout(self.advanced_box)
         form.addRow("Camere", self.camera)
@@ -315,6 +321,8 @@ class MainWindow(QMainWindow):
         form.addRow("", self.redo_alignment)
         form.addRow("", self.mesh_check)
         form.addRow("Risoluzione della mesh", self.mesh_size)
+        form.addRow("", self.pose_check)
+        form.addRow("", self.appearance_check)
         self.advanced_box.setVisible(False)
         self.advanced_button = QPushButton("Opzioni avanzate ▸")
         self.advanced_button.setCheckable(True)
@@ -456,6 +464,7 @@ class MainWindow(QMainWindow):
             camera=self.camera.currentData(), matcher=self.matcher.currentData(),
             methods=[self.method.currentData()] if self.method.count() else [],
             mesh_size=self.mesh_size.currentData(),
+            pose_refinement=self.pose_check.isChecked(), appearance_embedding=self.appearance_check.isChecked(),
         )
         if self.quality.currentData() in QUALITIES:
             s.set_quality(self.quality.currentData())
@@ -481,6 +490,8 @@ class MainWindow(QMainWindow):
         self.quality.setCurrentIndex(max(self.quality.findData(s.quality or "personalizzata"), 0))
         self.redo_alignment.setChecked(False)
         self.mesh_check.setChecked(False)
+        self.pose_check.setChecked(s.pose_refinement)
+        self.appearance_check.setChecked(s.appearance_embedding)
 
     def _update_notes(self) -> None:
         method = METHODS.get(self.method.currentData())

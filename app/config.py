@@ -121,6 +121,10 @@ class Settings:
     downscale: int = 0  # fattore di riduzione delle foto; 0 = il piu' piccolo che rispetta max_side
     max_side: int = 0  # con downscale 0: lato massimo in pixel (0 = risoluzione piena)
     mesh_size: int = 1600
+    # Opzioni di protocollo dei metodi nerfstudio. Spente, tutti i metodi lavorano alle stesse
+    # condizioni: pose di COLMAP non corrette e nessuna compensazione dell'aspetto per foto.
+    pose_refinement: bool = False  # correzione delle pose durante il training (camera optimizer SO3xR3)
+    appearance_embedding: bool = False  # solo NeRF: un vettore di aspetto per foto (luce, sviluppo)
 
     @property
     def quality(self) -> Optional[str]:

@@ -275,23 +275,29 @@ def build(project: str) -> Path:
             [[_fmt(mesh["train_minutes"], 1), _fmt(mesh["points"]), _fmt(mesh["vertices"]), _fmt(mesh["max_image_size"])]])
         mesh_html += ("<p class='note'>La fotogrammetria non produce immagini da nuovi punti di vista, quindi non ha "
                       "PSNR, SSIM e LPIPS: il confronto con gli altri metodi su quel piano non è possibile.</p>")
-    included = {e["key"] for e in entries}
-    left_out = sorted({config.METHODS[run.method].label for run in runs.list_runs(project)
-                       if run.method in config.METHODS and run.method not in included
-                       and run.comparable() is True and "psnr" in run.metrics()})
-    left_out_html = ("<p class='note'>Non inclusi, perché allenati con risoluzione o numero di iterazioni diversi: "
-                     + html.escape("; ".join(left_out)) + ".</p>") if left_out else ""
+    used = {e["run"] for e in entries}
+    left_out = [run for run in runs.list_runs(project) if run.method in config.METHODS and run not in used
+                and run.comparable() is True and "psnr" in run.metrics()]
+    left_out_html = ("<p class='note'>Non inclusi, perché fatti in condizioni diverse (risoluzione, iterazioni, "
+                     "correzione delle pose o aspetto per foto): "
+                     + html.escape("; ".join(f"{config.METHODS[r.method].label} del {r.timestamp[:10]}" for r in left_out))
+                     + ". Sono nella tabella completa.</p>") if left_out else ""
     from_disk = [e["label"] for e in entries if e["info"].get("photos_in") == "disk"]
     if from_disk:
         left_out_html += ("<p class='note'>Foto lette dal disco durante il training (non entravano in memoria): "
                           + html.escape("; ".join(from_disk)) + ". Il loro tempo di training include la lettura.</p>")
     views_html = "".join(f"<img src='figure/{p.name}' alt='Vista di test a confronto'>" for p in strips)
     versions = first["info"].get("versions", {})
+    from .pipeline import run_conditions
+    # Uguali per tutti i run del report: il raggruppamento li sceglie con le stesse condizioni.
+    conditions_of_first = run_conditions(first["info"])
     conditions = _table(["Condizione", "Valore"], [
         ["Foto allineate", f"{_fmt(alignment.get('registered_images'))} su {_fmt(alignment.get('photos'))}"],
         ["Errore medio di riproiezione (px)", _fmt(alignment.get("mean_reprojection_error_px"))],
         ["Foto di training / di test", f"{_fmt(first['info'].get('train_images'))} / {_fmt(first['test_images'])}"],
         ["Risoluzione delle immagini valutate", f"{first['width']} × {first['height']} px"],
+        ["Correzione delle pose (metodi nerfstudio)", "sì" if conditions_of_first[2] else "no"],
+        ["Aspetto per foto (NeRF)", "sì" if conditions_of_first[3] else "no"],
         ["Scheda grafica", first["info"].get("gpu", "—")],
         *[[f"Versione di {name}", version] for name, version in versions.items()],
     ])

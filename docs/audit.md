@@ -76,6 +76,17 @@ della risoluzione.
 | 37 | A | Il report prendeva l'ultimo run di ogni metodo, anche se fatti a risoluzioni o iterazioni diverse. | Entrano nel report solo i run fatti nelle stesse condizioni; gli altri sono elencati come esclusi. |
 | 38 | B | Il test confrontava sempre tutti i metodi installati. | I metodi del test si scelgono. |
 
+## Quarta revisione (versione 0.4.0)
+
+Riguarda due asimmetrie tra i metodi, verificate sul codice di nerfstudio 1.1.5.
+
+| # | Gravità | Problema | Correzione |
+|---|---|---|---|
+| 39 | A | nerfacto e nerfacto-big correggono le pose delle camere durante il training (`SO3xR3`), ma la valutazione rende le viste di test con le pose di COLMAP non corrette: i NeRF risultavano penalizzati. splatfacto e il codice Inria non correggono le pose. | Correzione delle pose spenta per default e sempre indicata in modo esplicito a nerfstudio; riattivabile come opzione. |
+| 40 | A | nerfacto ha per default un vettore di aspetto per foto che assorbe le differenze di luce e di sviluppo, cosa che il 3DGS non fa; il README affermava il contrario. | Vettore di aspetto spento per default, riattivabile come opzione; README corretto. |
+| 41 | M | Il report poteva mettere insieme run fatti con opzioni diverse. | Le due opzioni fanno parte delle condizioni di confrontabilità; i run precedenti valgono con i default di allora. |
+| 42 | B | Nessuna misura della memoria della scheda grafica. | Picco registrato per ogni training. |
+
 ## Punti aperti
 
 - **Stima della memoria**: se le foto entrano in memoria si decide con una stima (byte per pixel
@@ -90,8 +101,9 @@ della risoluzione.
   gli altri metodi; servirebbe un riferimento metrico (ad esempio un rilievo laser).
 - **Immagini di riferimento**: nerfstudio e il codice Inria correggono la distorsione con procedure
   diverse; le immagini vere usate nella valutazione coincidono nel contenuto ma non pixel per pixel.
-- **Variazioni di esposizione**: nessuno dei metodi configurati compensa differenze di luce tra le
-  foto; su rilievi lunghi questo penalizza le metriche.
+- **Variazioni di esposizione**: nel confronto principale nessun metodo compensa differenze di luce
+  tra le foto (il vettore di aspetto di nerfacto è spento per default); su rilievi lunghi questo
+  penalizza le metriche.
 - **Foto estranee al soggetto**: l'analisi non le riconosce (nel caso di studio, una foto di gruppo
   è stata tolta a mano).
 - **Ripetizioni**: ogni configurazione è eseguita una volta; la variabilità tra esecuzioni non è stimata.

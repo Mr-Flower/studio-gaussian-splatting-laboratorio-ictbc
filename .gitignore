@@ -22,3 +22,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .claude/
+
+# Foto di prova (sottoinsiemi creati per i test sulla scheda grafica)
+foto_prova/

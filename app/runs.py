@@ -122,7 +122,8 @@ class Run:
 def comparable_group(found: List[Run]) -> List[Run]:
     """Tra run valutati sull'allineamento corrente, quelli confrontabili tra loro: uno per metodo.
 
-    Run a risoluzione o numero di iterazioni diversi non si confrontano. Si prende il gruppo di
+    Run con risoluzione, iterazioni od opzioni di protocollo diverse (pipeline.run_conditions) non
+    si confrontano. Si prende il gruppo di
     condizioni uguali che copre piu' metodi (a parita', quello con il run piu' recente) e, per ogni
     metodo, il suo run piu' recente in quel gruppo. `found` e' ordinato dal piu' recente.
     """
@@ -130,8 +131,8 @@ def comparable_group(found: List[Run]) -> List[Run]:
     for run in found:
         if "psnr" not in run.metrics() or run.comparable() is not True:
             continue
-        info = run.info()
-        groups.setdefault((info.get("downscale"), info.get("iterations")), {}).setdefault(run.method, run)
+        from .pipeline import run_conditions  # qui: pipeline importa questo modulo
+        groups.setdefault(run_conditions(run.info()), {}).setdefault(run.method, run)
     if not groups:
         return []
     return list(max(groups.values(), key=len).values())  # a parita' vince il primo inserito, cioe' il piu' recente

@@ -171,3 +171,15 @@ def test_missing_components_are_reported(workspace):
     assert config.missing_components() == []
     (workspace / "tools" / "colmap-4.2.1" / "bin" / "colmap.exe").unlink()
     assert any("COLMAP" in item for item in config.missing_components())
+
+
+def test_protocol_options_from_the_command_line_are_explicit(workspace):
+    pytest.importorskip("PySide6")
+    from app import cli
+
+    Settings(name="prova", pose_refinement=True, appearance_embedding=True).save()
+    parser = cli._parser()
+    s = cli._settings(parser.parse_args(["run", "--project", "prova"]))
+    assert (s.pose_refinement, s.appearance_embedding) == (False, False)  # senza opzione: spente
+    s = cli._settings(parser.parse_args(["test", "--project", "prova", "--pose-refinement", "--appearance-embedding"]))
+    assert (s.pose_refinement, s.appearance_embedding) == (True, True)
