@@ -28,6 +28,8 @@ View = Tuple[str, Callable[[], Tuple[torch.Tensor, torch.Tensor]]]
 
 
 def nerfstudio_views(run: Path) -> Iterator[View]:
+    from . import config
+    config.use_nerfstudio_variants()  # anche quando il modulo e' eseguito a mano, fuori dal programma
     from nerfstudio.utils.eval_utils import eval_setup
 
     _, pipeline, _, _ = eval_setup(run / "config.yml", test_mode="test")
@@ -51,7 +53,8 @@ def nerfstudio_views(run: Path) -> Iterator[View]:
         yield Path(names[int(batch.get("image_idx", index))]).name, (render, finish)
 
 
-def inria_views(run: Path, repo: Path) -> Iterator[View]:
+def inria_scene(run: Path, repo: Path):
+    """Scena del codice Inria per un run: telecamere (foto lette una alla volta), gaussiane e opzioni."""
     sys.path.insert(0, str(repo))
     sys.argv = [sys.argv[0], "-m", str(run)]
     # Le foto si leggono una alla volta: caricarle tutte, comprese quelle di training, non serve
@@ -59,14 +62,8 @@ def inria_views(run: Path, repo: Path) -> Iterator[View]:
     from . import inria_lazy
     inria_lazy.install()
     from arguments import ModelParams, PipelineParams, get_combined_args
-    from gaussian_renderer import GaussianModel, render as render_view
+    from gaussian_renderer import GaussianModel
     from scene import Scene
-
-    try:
-        from diff_gaussian_rasterization import SparseGaussianAdam  # noqa: F401
-        separate_sh = True
-    except ImportError:
-        separate_sh = False
 
     parser = argparse.ArgumentParser()
     model, pipe = ModelParams(parser, sentinel=True), PipelineParams(parser)
@@ -74,8 +71,20 @@ def inria_views(run: Path, repo: Path) -> Iterator[View]:
     dataset = model.extract(args)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians, load_iteration=-1, shuffle=False)
+    return scene, gaussians, dataset, pipe.extract(args)
+
+
+def inria_views(run: Path, repo: Path) -> Iterator[View]:
+    scene, gaussians, dataset, pipeline = inria_scene(run, repo)
+    from gaussian_renderer import render as render_view
+
+    try:
+        from diff_gaussian_rasterization import SparseGaussianAdam  # noqa: F401
+        separate_sh = True
+    except ImportError:
+        separate_sh = False
+
     background = torch.tensor([1.0, 1.0, 1.0] if dataset.white_background else [0.0, 0.0, 0.0], device="cuda")
-    pipeline = pipe.extract(args)
     for view in scene.getTestCameras():
 
         def render(view=view):

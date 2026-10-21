@@ -118,7 +118,10 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
   gli altri metodi sul piano geometrico richiede un riferimento metrico indipendente.
 - L'immagine vera con cui si confronta ogni vista è preparata dal programma che ha allenato il
   modello: nerfstudio e il codice Inria correggono la distorsione dell'obiettivo con procedure
-  diverse, quindi le immagini di riferimento coincidono nel contenuto ma non pixel per pixel.
+  diverse e ritagli diversi. Riproiettando l'una nella camera dell'altra (`app/check_gt.py`), sul
+  caso di studio a risoluzione piena le due differiscono in media di 42,6 dB di PSNR (minimo 38,0;
+  SSIM 0,984): una differenza piccola rispetto agli errori dei metodi, ma non nulla. Le immagini
+  vere dei NeRF sono le foto non corrette, perché nerfacto tiene conto della distorsione nei raggi.
 - Nel confronto principale nessun metodo compensa le differenze di luce e di sviluppo tra le foto.
   nerfacto potrebbe farlo con il suo vettore di aspetto per foto, spento per default per tenere i
   metodi nelle stesse condizioni (punto 6); il suo effetto si misura con un run a parte.

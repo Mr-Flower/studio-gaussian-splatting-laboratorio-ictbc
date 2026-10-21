@@ -36,6 +36,60 @@ def read_images(model: Path) -> List[ModelImage]:
     return images
 
 
+# Modelli di camera di COLMAP: identificativo -> (nome, numero di parametri).
+CAMERA_MODELS = {0: ("SIMPLE_PINHOLE", 3), 1: ("PINHOLE", 4), 2: ("SIMPLE_RADIAL", 4), 3: ("RADIAL", 5),
+                 4: ("OPENCV", 8), 5: ("OPENCV_FISHEYE", 8), 6: ("FULL_OPENCV", 12), 7: ("FOV", 5),
+                 8: ("SIMPLE_RADIAL_FISHEYE", 4), 9: ("RADIAL_FISHEYE", 5), 10: ("THIN_PRISM_FISHEYE", 12)}
+
+
+@dataclass(frozen=True)
+class ModelCamera:
+    camera_id: int
+    model: str
+    width: int
+    height: int
+    params: tuple  # nell'ordine di COLMAP; per PINHOLE: fx, fy, cx, cy (origine nell'angolo del primo pixel)
+
+
+@dataclass(frozen=True)
+class ImagePose:
+    name: str
+    camera_id: int
+    qvec: tuple  # rotazione mondo -> camera, quaternione (w, x, y, z)
+    tvec: tuple  # traslazione mondo -> camera
+
+
+def read_cameras(model: Path) -> Dict[int, ModelCamera]:
+    """Camere di un modello sparso (file cameras.bin)."""
+    cameras = {}
+    with open(model / "cameras.bin", "rb") as f:
+        (count,) = struct.unpack("<Q", f.read(8))
+        for _ in range(count):
+            camera_id, model_id, width, height = struct.unpack("<iiQQ", f.read(24))
+            name, params = CAMERA_MODELS[model_id]
+            cameras[camera_id] = ModelCamera(camera_id, name, width, height, struct.unpack(f"<{params}d", f.read(8 * params)))
+    return cameras
+
+
+def read_poses(model: Path) -> Dict[str, ImagePose]:
+    """Pose e camera di ogni immagine registrata, per nome (file images.bin).
+
+    Separata da read_images, che scarta le pose: qui servono, per esempio, per i centri delle camere.
+    """
+    poses = {}
+    with open(model / "images.bin", "rb") as f:
+        (count,) = struct.unpack("<Q", f.read(8))
+        for _ in range(count):
+            _image_id, *pose, camera_id = struct.unpack("<i7di", f.read(64))
+            name = bytearray()
+            while (char := f.read(1)) != b"\x00":
+                name += char
+            (points2d,) = struct.unpack("<Q", f.read(8))
+            f.seek(24 * points2d, 1)
+            poses[name.decode("utf-8")] = ImagePose(name.decode("utf-8"), camera_id, tuple(pose[:4]), tuple(pose[4:]))
+    return poses
+
+
 def choose_split(names: List[str]) -> Dict[str, List[str]]:
     """Suddivisione deterministica: in ordine di nome, una foto ogni TEST_EVERY va al test."""
     ordered = sorted(names)

@@ -100,7 +100,8 @@ Riguarda due asimmetrie tra i metodi, verificate sul codice di nerfstudio 1.1.5.
   l'accuratezza della geometria. La mesh fotogrammetrica non ha quindi metriche confrontabili con
   gli altri metodi; servirebbe un riferimento metrico (ad esempio un rilievo laser).
 - **Immagini di riferimento**: nerfstudio e il codice Inria correggono la distorsione con procedure
-  diverse; le immagini vere usate nella valutazione coincidono nel contenuto ma non pixel per pixel.
+  diverse; riproiettate l'una sull'altra differiscono in media di 42,6 dB di PSNR sul caso di studio
+  (minimo 38,0). Misurato con `app/check_gt.py`.
 - **Variazioni di esposizione**: nel confronto principale nessun metodo compensa differenze di luce
   tra le foto (il vettore di aspetto di nerfacto è spento per default); su rilievi lunghi questo
   penalizza le metriche.

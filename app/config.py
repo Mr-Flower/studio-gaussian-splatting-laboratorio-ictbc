@@ -218,13 +218,23 @@ def environment() -> Dict[str, str]:
     )
     # nerfstudio deve poter importare app.ns_disk, che definisce le varianti con le foto lette dal disco.
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(ROOT), env.get("PYTHONPATH", "")]))
-    env["NERFSTUDIO_METHOD_CONFIGS"] = ",".join(
-        f"{key}{DISK_SUFFIX}=app.ns_disk:{key.replace('-', '_')}"
-        for key, method in METHODS.items() if method.engine == "nerfstudio")
+    env["NERFSTUDIO_METHOD_CONFIGS"] = nerfstudio_variants()
     env["PYTHONUTF8"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
     env["COLUMNS"] = "160"
     return env
+
+
+def nerfstudio_variants() -> str:
+    """Valore di NERFSTUDIO_METHOD_CONFIGS che fa conoscere a nerfstudio le varianti di app/ns_disk.py."""
+    return ",".join(f"{key}{DISK_SUFFIX}=app.ns_disk:{key.replace('-', '_')}"
+                    for key, method in METHODS.items() if method.engine == "nerfstudio")
+
+
+def use_nerfstudio_variants() -> None:
+    """Per i moduli eseguiti direttamente che ricaricano modelli di nerfstudio (valutazione, controlli):
+    senza le varianti, i run con le foto lette dal disco non si potrebbero ricaricare."""
+    os.environ.setdefault("NERFSTUDIO_METHOD_CONFIGS", nerfstudio_variants())
 
 
 def missing_components() -> List[str]:
