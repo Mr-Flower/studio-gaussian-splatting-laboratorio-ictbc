@@ -19,6 +19,12 @@
   l'immagine vera del codice Inria nella camera di nerfstudio e misura PSNR e SSIM sulla zona
   comune, vista per vista (`reports/<progetto>/check_gt.json`). Sul caso di studio, a risoluzione
   piena: PSNR medio 42,6 dB (minimo 38,0), SSIM 0,984 su 111 viste.
+- **Materiali per l'articolo** (`python -m app.paper --project <nome> --out paper\<nome>`): tabelle
+  in CSV e LaTeX (dati del rilievo, configurazioni, risultati con intervalli bootstrap, confronti
+  appaiati vista per vista con test di Wilcoxon e correzione di Holm, fotogrammetria), figure in PDF
+  e PNG (camere viste dall'alto, qualità rispetto all'ora di scatto, JPG contro DNG) e `numeri.json`
+  con tutti i numeri citabili. Legge solo i file già prodotti. Con più run dello stesso metodo nelle
+  stesse condizioni usa la media per vista tra i run.
 - Lettura di camere e pose dai modelli COLMAP (`colmap_model.read_cameras`, `read_poses`).
 - Picco di memoria della scheda grafica durante ogni training (`gpu_peak_mb` in `run.json`, letto
   con `nvidia-smi` ogni 2 secondi; comprende gli altri programmi che usano la scheda).

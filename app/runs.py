@@ -119,23 +119,28 @@ class Run:
         return recorded == alignment_id(config.WORK / "data" / self.project)
 
 
-def comparable_group(found: List[Run]) -> List[Run]:
-    """Tra run valutati sull'allineamento corrente, quelli confrontabili tra loro: uno per metodo.
+def condition_groups(found: List[Run]) -> List[Dict[str, List[Run]]]:
+    """Run valutati sull'allineamento corrente, raggruppati per condizioni e, nel gruppo, per metodo.
 
     Run con risoluzione, iterazioni od opzioni di protocollo diverse (pipeline.run_conditions) non
-    si confrontano. Si prende il gruppo di
-    condizioni uguali che copre piu' metodi (a parita', quello con il run piu' recente) e, per ogni
-    metodo, il suo run piu' recente in quel gruppo. `found` e' ordinato dal piu' recente.
+    si confrontano; il seme non conta, cosi' le ripetizioni finiscono nello stesso gruppo. I gruppi
+    sono ordinati dal piu' ampio (piu' metodi) e, a parita', da quello con il run piu' recente;
+    nel gruppo i run di ogni metodo vanno dal piu' recente. `found` e' ordinato dal piu' recente.
     """
-    groups: Dict[Any, Dict[str, Run]] = {}
+    from .pipeline import run_conditions  # qui: pipeline importa questo modulo
+
+    groups: Dict[Any, Dict[str, List[Run]]] = {}
     for run in found:
         if "psnr" not in run.metrics() or run.comparable() is not True:
             continue
-        from .pipeline import run_conditions  # qui: pipeline importa questo modulo
-        groups.setdefault(run_conditions(run.info()), {}).setdefault(run.method, run)
-    if not groups:
-        return []
-    return list(max(groups.values(), key=len).values())  # a parita' vince il primo inserito, cioe' il piu' recente
+        groups.setdefault(run_conditions(run.info()), {}).setdefault(run.method, []).append(run)
+    return sorted(groups.values(), key=len, reverse=True)  # ordinamento stabile: a parita' resta il piu' recente
+
+
+def comparable_group(found: List[Run]) -> List[Run]:
+    """Tra run valutati sull'allineamento corrente, quelli confrontabili tra loro: uno per metodo, il piu' recente."""
+    groups = condition_groups(found)
+    return [method_runs[0] for method_runs in groups[0].values()] if groups else []
 
 
 def new_run(project: str, method: str) -> Run:

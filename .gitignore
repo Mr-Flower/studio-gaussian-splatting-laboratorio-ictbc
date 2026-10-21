@@ -23,5 +23,8 @@ __pycache__/
 .pytest_cache/
 .claude/
 
+# Materiali dell'articolo generati da app/paper.py (si rigenerano dai run)
+paper/
+
 # Foto di prova (sottoinsiemi creati per i test sulla scheda grafica)
 foto_prova/

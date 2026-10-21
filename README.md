@@ -231,6 +231,9 @@ una superficie in `.glb` serve la mesh della fotogrammetria classica.
 # conversione di un modello esportato in nuvola di punti o in GLB
 .venv\Scripts\python -m app.convert exports\arco\splatfacto_<data>\splat.ply punti.glb
 
+# tabelle, figure e numeri per l'articolo (dai run gia' fatti)
+.venv\Scripts\python -m app.paper --project arco --out paperrco --scartate foto\LEGGIMI.txt
+
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv
 ```
