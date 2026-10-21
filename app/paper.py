@@ -363,6 +363,15 @@ def top_view(centers: Dict[str, np.ndarray], up: np.ndarray) -> Dict[str, Tuple[
     return {n: (float(p[0]), float(p[1])) for n, p in zip(names, plane)}
 
 
+def metres_per_unit(project: str) -> Optional[float]:
+    """Scala scelta in data/<progetto>/scala.json (app/scala.py), None se non ce n'e' una in uso."""
+    from . import scala
+
+    data = scala.load(project) or {}
+    key = data.get("use")
+    return float(data[key]) if key in ("scale", "scale_horizontal") else None
+
+
 def _save(fig, out: Path, name: str) -> None:
     fig.savefig(out / f"{name}.pdf")
     fig.savefig(out / f"{name}.png", dpi=300)
@@ -371,7 +380,7 @@ def _save(fig, out: Path, name: str) -> None:
 CAMERA_COLOR = {"jpg": "#2a78d6", "dng": "#eb6834"}  # palette categorica di riferimento, ordine fisso
 
 
-def figure_cameras(scene: Path, out: Path) -> None:
+def figure_cameras(scene: Path, out: Path, metres: Optional[float] = None) -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -380,6 +389,8 @@ def figure_cameras(scene: Path, out: Path) -> None:
     _style()
     centers, up = camera_centers(pipeline.best_sparse_model(scene / "colmap"))
     plan = top_view(centers, up)
+    if metres:
+        plan = {n: (x * metres, y * metres) for n, (x, y) in plan.items()}
     test = set(colmap_model.read_split(scene)["test"])
     fig, ax = plt.subplots(figsize=(8.0, 6.0), constrained_layout=True)
     for cam in sorted({camera_of(n) for n in plan}, reverse=True):  # jpg sotto, dng (poche) sopra
@@ -396,11 +407,12 @@ def figure_cameras(scene: Path, out: Path) -> None:
                 ax.scatter(xs, ys, s=10, color=color, alpha=0.55, linewidth=0, label=label, zorder=2)
     ax.set_aspect("equal")
     ax.set_title("Centri delle camere, visti dall'alto")
-    ax.set_xlabel("unità dell'allineamento (scala arbitraria)", color=INK_SECONDARY)
+    unit = "metri (scala dal GPS del drone)" if metres else "unità dell'allineamento (scala arbitraria)"
+    ax.set_xlabel(unit, color=INK_SECONDARY)
     ax.tick_params(length=0)
     for side in ax.spines.values():
         side.set_visible(False)
-    ax.set_ylabel("unità dell'allineamento", color=INK_SECONDARY)
+    ax.set_ylabel("metri" if metres else "unità dell'allineamento", color=INK_SECONDARY)
     ax.legend(frameon=False, fontsize=8.5, loc="upper left", bbox_to_anchor=(1.01, 1.0), facecolor=SURFACE)
     _save(fig, out, "fig2_camere")
     plt.close(fig)
@@ -485,8 +497,16 @@ def build(project: str, out: Path, discarded_file: Optional[Path] = None, figure
     if len(results) > 1:
         table_paired(results, out, numbers)
     numbers["mvs.disponibile"] = table_photogrammetry(scene, out, numbers)
+    metres = metres_per_unit(project)
+    if metres:
+        from . import scala
+        data = scala.load(project)
+        numbers.update({"scala.metri_per_unita": metres, "scala.stima": data["use"],
+                        "scala.ic95": data.get("scale_horizontal_ci95") if data["use"] == "scale_horizontal" else None,
+                        "scala.residuo_orizzontale_m": data.get("horizontal_residual_median_m"),
+                        "scala.errore_medio_3d_m": data.get("error_mean_m")})
     if figures:
-        figure_cameras(scene, out)
+        figure_cameras(scene, out, metres)
         times = taken_times(scene)
         numbers["ora.prima"] = min(times.values()).strftime("%H:%M") if times else None
         numbers["ora.ultima"] = max(times.values()).strftime("%H:%M") if times else None

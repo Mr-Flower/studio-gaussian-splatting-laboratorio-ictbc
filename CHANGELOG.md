@@ -31,6 +31,13 @@
   Inria). Report e `app/paper.py` raggruppano i run che differiscono solo per il seme. Lo stesso
   seme non dà risultati identici: sulla scheda grafica restano differenze (su 40 foto, splatfacto
   18,40 e 18,03 dB con lo stesso seme; Inria 19,33 e 19,33).
+- **Scala metrica dal GPS del drone** (`python -m app.scala --project <nome>`): allinea una copia del
+  modello sparso alle posizioni GPS delle EXIF, senza toccare l'allineamento dei run, e salva in
+  `data/<progetto>/scala.json` due stime: quella di `model_aligner` sui tre assi e una dalle sole
+  posizioni orizzontali, perché la quota del GPS è poco affidabile. Sul caso di studio: 2,49 e
+  2,79 m per unità (IC 95% 2,76–2,82); residui orizzontali di circa 1 m, verticali di 11 m (d.s.).
+  `app/paper.py` usa la stima indicata nel campo `use`, se c'è.
+- Script `scripts/run_articolo.ps1`: i run definitivi per l'articolo in sequenza, con registro.
 - Lettura di camere e pose dai modelli COLMAP (`colmap_model.read_cameras`, `read_poses`).
 - Picco di memoria della scheda grafica durante ogni training (`gpu_peak_mb` in `run.json`, letto
   con `nvidia-smi` ogni 2 secondi; comprende gli altri programmi che usano la scheda).
