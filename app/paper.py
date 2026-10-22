@@ -34,6 +34,9 @@ from . import colmap_model, config, photos, pipeline, runs
 from .runs import Run
 
 METRICS = ("psnr", "ssim", "lpips")
+CORRECTED = tuple(m + "_cc" for m in METRICS)  # dopo la correzione affine del colore (app/evaluate.py)
+ALL_METRICS = METRICS + CORRECTED
+MEASURE = {"": "grezza", "_cc": "corretta"}
 BOOTSTRAP = 10000  # ricampionamenti delle viste per gli intervalli di confidenza
 SEED = 0  # seme del bootstrap: gli stessi file danno sempre gli stessi intervalli
 CONFIDENCE = 0.95
@@ -108,11 +111,34 @@ def collect(project: str) -> List[MethodResult]:
         result = MethodResult(key, method_runs)
         per_run = [{v["name"]: v for v in runs.read_json(r.path / runs.METRICS_FILE).get("per_image", [])}
                    for r in method_runs]
-        common = set.intersection(*(set(p) for p in per_run))
-        for name in sorted(common):
-            result.per_view[name] = {m: statistics.mean(p[name][m] for p in per_run) for m in METRICS}
+        result.per_view = per_view(method_runs)
         results.append(result)
     return results
+
+
+def per_view(method_runs: List[Run], side: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+    """Metriche per vista, media tra i run; con `side` quelle alla scala comune di quel lato (at_side)."""
+    per_run = []
+    for run in method_runs:
+        views = {}
+        for v in runs.read_json(run.path / runs.METRICS_FILE).get("per_image", []):
+            values = v if side is None else v.get("at_side", {}).get(side)
+            if values is not None:
+                views[v["name"]] = values
+        per_run.append(views)
+    if not per_run:
+        return {}
+    common = set.intersection(*(set(p) for p in per_run))
+    out = {}
+    for name in sorted(common):
+        out[name] = {m: statistics.mean(p[name][m] for p in per_run)
+                     for m in ALL_METRICS if all(m in p[name] for p in per_run)}
+    return out
+
+
+def available(results: List["MethodResult"], metrics=ALL_METRICS) -> List[str]:
+    """Metriche presenti per tutti i metodi e tutte le viste (i run vecchi non hanno quelle corrette)."""
+    return [m for m in metrics if all(m in v for r in results for v in r.per_view.values())]
 
 
 def camera_of(name: str) -> str:
@@ -257,9 +283,10 @@ def table_configurations(results: List[MethodResult], out: Path, numbers: dict) 
 
 def table_results(results: List[MethodResult], out: Path, numbers: dict) -> None:
     rows = []
+    shown = available(results)
     for r in results:
         row = [r.method.label, len(r.per_view)]
-        for metric in METRICS:
+        for metric in shown:
             values = [v[metric] for v in r.per_view.values()]
             mean, sd = statistics.mean(values), statistics.pstdev(values)
             low, high = bootstrap_ci(values)
@@ -283,11 +310,13 @@ def table_results(results: List[MethodResult], out: Path, numbers: dict) -> None
                         f"{r.key}.fps": fps, f"{r.key}.ply_mb": size_mb, f"{r.key}.elementi": elements,
                         f"{r.key}.viste": len(r.per_view)})
     headers = ["Metodo", "Viste"]
-    for metric in METRICS:
-        headers += [f"{metric.upper()} media ± d.s.", f"{metric.upper()} IC 95%"]
+    for metric in shown:
+        name = metric.replace("_cc", "").upper() + (" corretto" if metric.endswith("_cc") else "")
+        headers += [f"{name} media ± d.s.", f"{name} IC 95%"]
     headers += ["Training (h)", "Picco GPU (MB)", "Rendering (fps)", ".ply (MB)", "Gaussiane / punti"]
     write_table(out, "tab3_risultati", headers, rows,
-                f"Risultati sulle viste di test; IC bootstrap percentile, {BOOTSTRAP} ricampionamenti, seme {SEED}")
+                f"Risultati sulle viste di test; IC bootstrap percentile, {BOOTSTRAP} ricampionamenti, seme {SEED}; "
+                "«corretto»: dopo la correzione affine del colore per canale (limite superiore)")
 
 
 def paired(a: MethodResult, b: MethodResult, metric: str) -> np.ndarray:
@@ -297,25 +326,252 @@ def paired(a: MethodResult, b: MethodResult, metric: str) -> np.ndarray:
 
 
 def table_paired(results: List[MethodResult], out: Path, numbers: dict) -> None:
-    tests = []
-    for a, b in combinations(results, 2):
-        for metric in METRICS:
-            diff = paired(a, b, metric)
-            low, high = bootstrap_ci(diff, statistic=np.median)
-            tests.append((a, b, metric, diff, float(np.median(diff)) if len(diff) else math.nan, low, high,
-                          wilcoxon_p(diff)))
-    # Holm su tutti i confronti della tabella (coppie per metriche): la correzione piu' prudente.
-    adjusted = holm([t[-1] for t in tests])
     rows = []
-    for (a, b, metric, diff, median, low, high, p), p_holm in zip(tests, adjusted):
-        rows.append([a.method.label, b.method.label, metric.upper(), len(diff), f"{median:+.4f}",
-                     f"[{low:+.4f}, {high:+.4f}]", f"{p:.2e}", f"{p_holm:.2e}"])
-        key = f"appaiati.{a.key}_vs_{b.key}.{metric}"
-        numbers.update({f"{key}.mediana": median, f"{key}.ci_low": low, f"{key}.ci_high": high,
-                        f"{key}.p": p, f"{key}.p_holm": p_holm, f"{key}.viste": len(diff)})
+    shown = set(available(results))
+    for suffix, measure in MEASURE.items():
+        metrics = [m + suffix for m in METRICS if m + suffix in shown]
+        tests = []
+        for a, b in combinations(results, 2):
+            for metric in metrics:
+                diff = paired(a, b, metric)
+                low, high = bootstrap_ci(diff, statistic=np.median)
+                tests.append((a, b, metric, diff, float(np.median(diff)) if len(diff) else math.nan, low, high,
+                              wilcoxon_p(diff)))
+        # Holm su tutti i confronti di una famiglia (coppie per metriche, grezze o corrette): prudente, e le
+        # metriche grezze restano corrette come nella versione 0.4.0.
+        adjusted = holm([test[-1] for test in tests])
+        for (a, b, metric, diff, median, low, high, p_value), p_holm in zip(tests, adjusted):
+            rows.append([a.method.label, b.method.label, metric.replace("_cc", "").upper(), measure, len(diff),
+                         f"{median:+.4f}", f"[{low:+.4f}, {high:+.4f}]", f"{p_value:.2e}", f"{p_holm:.2e}"])
+            key = f"appaiati.{a.key}_vs_{b.key}.{metric}"
+            numbers.update({f"{key}.mediana": median, f"{key}.ci_low": low, f"{key}.ci_high": high,
+                            f"{key}.p": p_value, f"{key}.p_holm": p_holm, f"{key}.viste": len(diff)})
     write_table(out, "tab4_appaiati",
-                ["Metodo A", "Metodo B", "Metrica", "Viste", "Mediana A−B", "IC 95%", "p (Wilcoxon)", "p (Holm)"],
-                rows, "Confronti appaiati vista per vista; Holm su tutte le righe")
+                ["Metodo A", "Metodo B", "Metrica", "Misura", "Viste", "Mediana A−B", "IC 95%", "p (Wilcoxon)",
+                 "p (Holm)"], rows,
+                "Confronti appaiati vista per vista; Holm separato per le metriche grezze e per quelle corrette")
+
+
+# --- esposizione delle foto
+
+EXIF_IFD, EXPOSURE_TIME, F_NUMBER, ISO = 0x8769, 0x829A, 0x829D, 0x8827
+
+
+def exposure_values(folder: Path, names: Sequence[str]) -> Dict[str, Optional[float]]:
+    """EV100 di ogni foto dalle EXIF: log2(N^2 / t) - log2(ISO / 100); None se mancano i dati."""
+    from PIL import Image
+
+    values: Dict[str, Optional[float]] = {}
+    for name in names:
+        try:
+            with Image.open(folder / name) as image:
+                exif = image.getexif().get_ifd(EXIF_IFD)
+            t, n, iso = float(exif[EXPOSURE_TIME]), float(exif[F_NUMBER]), exif[ISO]
+            iso = float(iso[0] if isinstance(iso, (tuple, list)) else iso)
+            values[name] = math.log2(n * n / t) - math.log2(iso / 100) if t > 0 and n > 0 and iso > 0 else None
+        except (OSError, KeyError, TypeError, ValueError, ZeroDivisionError):
+            values[name] = None
+    return values
+
+
+def exposure_distance(scene: Path, project: str) -> Dict[str, float]:
+    """Per ogni vista di test, distanza di esposizione dalla mediana delle foto di training (in EV)."""
+    settings = config.Settings.load(project)
+    if settings is None or not settings.photos:
+        return {}
+    split = colmap_model.read_split(scene)
+    ev = exposure_values(Path(settings.photos), split["train"] + split["test"])
+    train = [ev[n] for n in split["train"] if ev.get(n) is not None]
+    if not train:
+        return {}
+    middle = statistics.median(train)
+    return {n: ev[n] - middle for n in split["test"] if ev.get(n) is not None}
+
+
+def exposure_numbers(results: List[MethodResult], distance: Dict[str, float], numbers: dict) -> None:
+    from scipy.stats import spearmanr
+
+    numbers["esposizione.viste_con_dati"] = len(distance)
+    numbers["esposizione.delta_ev_mediana_assoluta"] = statistics.median(abs(d) for d in distance.values()) if distance else None
+    for r in results:
+        for metric in ("psnr", "psnr_cc"):
+            names = [n for n in r.per_view if n in distance and metric in r.per_view[n]]
+            if len(names) > 2:
+                rho, p_value = spearmanr([abs(distance[n]) for n in names], [r.per_view[n][metric] for n in names])
+                numbers[f"{r.key}.esposizione.rho_{metric}"] = float(rho)
+                numbers[f"{r.key}.esposizione.p_{metric}"] = float(p_value)
+        if all("psnr_cc" in v for v in r.per_view.values()):
+            numbers[f"{r.key}.psnr_grezzo_meno_corretto"] = statistics.mean(
+                v["psnr"] - v["psnr_cc"] for v in r.per_view.values())
+    by_key = {r.key: r for r in results}
+    if "inria-3dgs" in by_key and "splatfacto" in by_key:
+        a, b = by_key["inria-3dgs"].per_view, by_key["splatfacto"].per_view
+        names = [n for n in a if n in b and "psnr_cc" in a[n] and "psnr_cc" in b[n]]
+        flips = sum(1 for n in names if np.sign(a[n]["psnr"] - b[n]["psnr"]) != np.sign(a[n]["psnr_cc"] - b[n]["psnr_cc"]))
+        numbers["esposizione.inversioni_inria_splatfacto_psnr"] = flips
+        numbers["esposizione.viste_confrontate_inria_splatfacto"] = len(names)
+
+
+def figure_exposure(results: List[MethodResult], distance: Dict[str, float], out: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy.stats import spearmanr
+
+    from .report import FAMILY_COLOR, GRID, MUTED, _style
+
+    _style()
+    shown = [r for r in results if any(n in distance for n in r.per_view)]
+    fig, axes = plt.subplots(1, len(shown), figsize=(3.2 * len(shown), 3.8), sharey=True, constrained_layout=True,
+                             squeeze=False)
+    for ax, r in zip(axes[0], shown):
+        names = [n for n in r.per_view if n in distance]
+        x = np.array([abs(distance[n]) for n in names])
+        for metric, color, label in (("psnr", MUTED, "grezzo"), ("psnr_cc", FAMILY_COLOR[r.method.family], "corretto")):
+            if not all(metric in r.per_view[n] for n in names):
+                continue
+            y = np.array([r.per_view[n][metric] for n in names])
+            rho = spearmanr(x, y)[0] if len(x) > 2 else math.nan
+            ax.scatter(x, y, s=12, color=color, linewidth=0, alpha=0.75, label=f"{label} (ρ = {rho:.2f})")
+            if len(x) > 2 and np.ptp(x) > 0:
+                slope, intercept = np.polyfit(x, y, 1)
+                xs = np.linspace(x.min(), x.max(), 10)
+                ax.plot(xs, slope * xs + intercept, color=color, linewidth=1.6)
+        ax.set_title(r.method.short, fontsize=10)
+        ax.set_xlabel("|ΔEV| dalla mediana del training")
+        ax.grid(True, color=GRID, linewidth=0.8)
+        ax.set_axisbelow(True)
+        ax.tick_params(length=0)
+        ax.legend(frameon=False, fontsize=8, loc="lower left")
+    axes[0][0].set_ylabel("PSNR per vista (dB)")
+    fig.suptitle("PSNR rispetto alla distanza di esposizione della vista: grezzo e dopo la correzione del colore",
+                 x=0.01, ha="left", fontsize=11, fontweight="bold")
+    _save(fig, out, "fig5c_esposizione")
+    plt.close(fig)
+
+
+# --- risoluzione di training e scala di valutazione
+
+def condition_index(project: str) -> Dict[tuple, Dict[str, List[Run]]]:
+    """Run valutati sull'allineamento corrente, per condizioni e metodo (dal piu' recente)."""
+    index: Dict[tuple, Dict[str, List[Run]]] = {}
+    for run in runs.list_runs(project):
+        if run.method in config.METHODS and run.comparable() is True and "psnr" in run.metrics():
+            index.setdefault(pipeline.run_conditions(run.info()), {}).setdefault(run.method, []).append(run)
+    return index
+
+
+SCALES = ((1, None), (2, "2640"), (4, "1320"))  # colonna: fattore di riduzione e lato della scala comune
+
+
+def views_at(method_runs: List[Run], train_factor: int, eval_factor: int) -> Dict[str, Dict[str, float]]:
+    """Metriche per vista di modelli allenati a 1/train_factor e valutati alla scala 1/eval_factor."""
+    if eval_factor < train_factor:
+        return {}  # non si valuta a risoluzione piu' alta di quella di training
+    if eval_factor == train_factor:
+        return per_view(method_runs)
+    return per_view(method_runs, dict(SCALES)[eval_factor])
+
+
+def table_resolution(project: str, main: List[MethodResult], out: Path, numbers: dict) -> bool:
+    index = condition_index(project)
+    if not main:
+        return False
+    iterations = main[0].runs[0].info().get("iterations")
+    rows = []
+    for key in ("inria-3dgs", "splatfacto"):
+        trained = {f: index.get((f, iterations, False, False), {}).get(key) for f, _ in SCALES}
+        if not trained[1]:
+            continue
+        for factor, method_runs in trained.items():
+            if not method_runs:
+                continue
+            cells = []
+            for eval_factor, _ in SCALES:
+                views = views_at(method_runs, factor, eval_factor)
+                metric = "psnr_cc" if views and all("psnr_cc" in v for v in views.values()) else "psnr"
+                if not views:
+                    cells.append("–")
+                    continue
+                means = {m: statistics.mean(v[m + metric[4:]] for v in views.values()) for m in METRICS}
+                cells.append(f"{means['psnr']:.2f} / {means['ssim']:.3f} / {means['lpips']:.3f}")
+                numbers[f"risoluzione.{key}.train{factor}.eval{eval_factor}.{metric}"] = means["psnr"]
+                numbers[f"risoluzione.{key}.train{factor}.eval{eval_factor}.lpips{metric[4:]}"] = means["lpips"]
+            infos = [r.info() for r in method_runs]
+            export = method_runs[0].export_file
+            gaussians = runs.ply_elements(export) if export else None
+            hours = statistics.mean(i.get("train_seconds", math.nan) for i in infos) / 3600
+            peaks = [i["gpu_peak_mb"] for i in infos if "gpu_peak_mb" in i]
+            side = _side(method_runs[0])
+            rows.append([config.METHODS[key].label, side, *cells, gaussians or "–", _f(hours, 2),
+                         max(peaks) if peaks else "–", len(method_runs)])
+            numbers[f"risoluzione.{key}.train{factor}.gaussiane"] = gaussians
+            numbers[f"risoluzione.{key}.train{factor}.training_ore"] = hours
+        # La domanda: a parita' di scala (1320 px), il modello allenato a piena risoluzione e' migliore?
+        if trained[1] and trained[4]:
+            full, small = views_at(trained[1], 1, 4), views_at(trained[4], 4, 4)
+            names = [n for n in full if n in small]
+            for metric in ("psnr_cc", "lpips_cc", "psnr", "lpips"):
+                if names and all(metric in full[n] and metric in small[n] for n in names):
+                    diff = np.array([full[n][metric] - small[n][metric] for n in names])
+                    base = f"risoluzione.{key}.piena_meno_1320_a_1320.{metric}"
+                    numbers[f"{base}.mediana"] = float(np.median(diff))
+                    numbers[f"{base}.media"] = float(diff.mean())
+                    numbers[f"{base}.p"] = wilcoxon_p(diff)
+                    numbers[f"{base}.viste"] = len(diff)
+    if not rows:
+        return False
+    write_table(out, "tab6_risoluzione",
+                ["Metodo", "Lato di training (px)", "Valutato a piena risoluzione", "Valutato a 2640 px",
+                 "Valutato a 1320 px", "Gaussiane", "Training (h)", "Picco GPU (MB)", "Run"], rows,
+                "PSNR / SSIM / LPIPS dopo la correzione del colore (grezzi se mancano), per scala di valutazione")
+    return True
+
+
+# --- disegno 2x2 delle opzioni di nerfstudio
+
+def table_nerf_options(project: str, main: List[MethodResult], out: Path, numbers: dict) -> bool:
+    index = condition_index(project)
+    if not main:
+        return False
+    iterations = main[0].runs[0].info().get("iterations")
+    cells = {}
+    for pose in (False, True):
+        for appearance in (False, True):
+            method_runs = index.get((1, iterations, pose, appearance), {}).get("nerfacto")
+            if method_runs:
+                cells[(pose, appearance)] = per_view(method_runs)
+    if len(cells) < 2:
+        return False
+    rows = []
+    means = {}
+    for (pose, appearance), views in sorted(cells.items()):
+        shown = [m for m in ALL_METRICS if views and all(m in v for v in views.values())]
+        means[(pose, appearance)] = {m: statistics.mean(v[m] for v in views.values()) for m in shown}
+        rows.append(["sì" if pose else "no", "sì" if appearance else "no", len(views),
+                     *[_f(means[(pose, appearance)].get(m), 3) for m in ALL_METRICS]])
+        for m, value in means[(pose, appearance)].items():
+            numbers[f"nerfacto_2x2.pose_{int(pose)}.aspetto_{int(appearance)}.{m}"] = value
+    if len(cells) == 4:
+        for m in ALL_METRICS:
+            if all(m in means[c] for c in cells):
+                pose_effect = ((means[(True, False)][m] - means[(False, False)][m])
+                               + (means[(True, True)][m] - means[(False, True)][m])) / 2
+                appearance_effect = ((means[(False, True)][m] - means[(False, False)][m])
+                                     + (means[(True, True)][m] - means[(True, False)][m])) / 2
+                numbers[f"nerfacto_2x2.effetto_pose.{m}"] = pose_effect
+                numbers[f"nerfacto_2x2.effetto_aspetto.{m}"] = appearance_effect
+        rows.append(["effetto principale", "", "", *[
+            _f(numbers.get(f"nerfacto_2x2.effetto_pose.{m}"), 3) for m in ALL_METRICS]])
+        rows[-1][0] = "effetto: correzione delle pose"
+        rows.append(["effetto: vettore di aspetto", "", "", *[
+            _f(numbers.get(f"nerfacto_2x2.effetto_aspetto.{m}"), 3) for m in ALL_METRICS]])
+    write_table(out, "tab7_opzioni_nerfstudio",
+                ["Correzione delle pose", "Vettore di aspetto", "Viste", "PSNR", "SSIM", "LPIPS", "PSNR corretto",
+                 "SSIM corretto", "LPIPS corretto"], rows,
+                "nerfacto a piena risoluzione: le due opzioni di nerfstudio una alla volta e insieme; "
+                "con il vettore di aspetto le viste di test usano il vettore medio")
+    return True
 
 
 def table_photogrammetry(scene: Path, out: Path, numbers: dict) -> bool:
@@ -496,6 +752,10 @@ def build(project: str, out: Path, discarded_file: Optional[Path] = None, figure
     table_results(results, out, numbers)
     if len(results) > 1:
         table_paired(results, out, numbers)
+    numbers["tab6.disponibile"] = table_resolution(project, results, out, numbers)
+    numbers["tab7.disponibile"] = table_nerf_options(project, results, out, numbers)
+    distance = exposure_distance(scene, project)
+    exposure_numbers(results, distance, numbers)
     numbers["mvs.disponibile"] = table_photogrammetry(scene, out, numbers)
     metres = metres_per_unit(project)
     if metres:
@@ -512,6 +772,8 @@ def build(project: str, out: Path, discarded_file: Optional[Path] = None, figure
         numbers["ora.ultima"] = max(times.values()).strftime("%H:%M") if times else None
         figure_time(results, times, out)
         figure_jpg_dng(results, out)
+        if distance:
+            figure_exposure(results, distance, out)
     clean = {k: (None if isinstance(v, float) and math.isnan(v) else v) for k, v in numbers.items()}
     (out / "numeri.json").write_text(json.dumps(clean, indent=1, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     return clean

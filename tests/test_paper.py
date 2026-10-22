@@ -89,3 +89,74 @@ def test_tables_and_numbers(workspace, tmp_path):
         rows = list(csv.reader(f, delimiter=";"))
     assert len(rows) == 1 + 3  # una coppia di metodi, tre metriche
     assert numbers["dati.foto_test"] == len(VIEWS) and numbers["dati.camera_dng"] == 2
+
+
+def test_exposure_value_from_exif(tmp_path):
+    from PIL import Image
+
+    exif = Image.Exif()
+    ifd = exif.get_ifd(paper.EXIF_IFD)
+    ifd[paper.EXPOSURE_TIME], ifd[paper.F_NUMBER], ifd[paper.ISO] = 1 / 400, 2.8, 200
+    Image.new("RGB", (8, 8)).save(tmp_path / "a.jpg", exif=exif)
+    Image.new("RGB", (8, 8)).save(tmp_path / "senza.jpg")
+    values = paper.exposure_values(tmp_path, ["a.jpg", "senza.jpg", "manca.jpg"])
+    assert values["a.jpg"] == pytest.approx(np.log2(2.8 ** 2 * 400) - 1)  # ISO 200: un EV in meno
+    assert values["senza.jpg"] is None and values["manca.jpg"] is None
+
+
+def fake_resolution_runs(workspace):
+    scene = workspace / "data" / "prova"
+    scene.mkdir(parents=True)
+    (scene / "transforms.json").write_text("allineamento")
+
+    def trained(method, timestamp, downscale, psnr, age, sides=()):
+        run_dir = make_run(workspace, "prova", method, timestamp)
+        checkpoint = next((run_dir / "nerfstudio_models").iterdir())
+        os.utime(checkpoint, (10000 - age, 10000 - age))
+        runs.update_json(run_dir / runs.RUN_FILE, family="gaussian", downscale=downscale, iterations=30000,
+                         alignment=runs.alignment_id(scene), train_seconds=3600 / downscale)
+        per_image = []
+        for name in VIEWS:
+            view = {"name": name, "psnr": psnr, "ssim": 0.6, "lpips": 0.5, "psnr_cc": psnr + 1, "ssim_cc": 0.61,
+                    "lpips_cc": 0.49}
+            view["at_side"] = {side: {"psnr": psnr + 2, "ssim": 0.7, "lpips": 0.4, "psnr_cc": psnr + 3, "ssim_cc": 0.71,
+                                      "lpips_cc": 0.39} for side in sides}
+            per_image.append(view)
+        (run_dir / runs.METRICS_FILE).write_text(json.dumps({"results": {"psnr": psnr, "width": 100, "height": 75},
+                                                             "per_image": per_image}))
+
+    trained("splatfacto", "2026-01-01_000000", 1, 19.0, age=3, sides=("2640", "1320"))
+    trained("splatfacto", "2026-01-02_000000", 4, 21.0, age=2)
+    return scene
+
+
+def test_resolution_table_compares_training_resolutions_at_a_common_scale(workspace, tmp_path):
+    fake_resolution_runs(workspace)
+    numbers = {}
+    main = paper.collect("prova")
+    assert paper.table_resolution("prova", main, tmp_path, numbers)
+    # Allenato a piena risoluzione e valutato a 1320 px: 19 + 3 (corretto); allenato a 1320 px: 21 + 1.
+    assert numbers["risoluzione.splatfacto.train1.eval4.psnr_cc"] == pytest.approx(22.0)
+    assert numbers["risoluzione.splatfacto.train4.eval4.psnr_cc"] == pytest.approx(22.0)
+    assert numbers["risoluzione.splatfacto.piena_meno_1320_a_1320.psnr_cc.mediana"] == pytest.approx(0.0)
+    assert numbers["risoluzione.splatfacto.piena_meno_1320_a_1320.psnr.mediana"] == pytest.approx(0.0)
+    assert "risoluzione.splatfacto.train4.eval1.psnr_cc" not in numbers  # mai sopra la risoluzione di training
+    with open(tmp_path / "tab6_risoluzione.csv", encoding="utf-8-sig") as f:
+        assert len(f.read().strip().splitlines()) == 1 + 2  # splatfacto allenato a due risoluzioni
+
+
+def test_nerfstudio_options_main_effects(workspace, tmp_path):
+    scene = workspace / "data" / "prova"
+    scene.mkdir(parents=True)
+    (scene / "transforms.json").write_text("allineamento")
+    psnr = {(False, False): 18.0, (True, False): 15.0, (False, True): 19.0, (True, True): 16.0}
+    for age, ((pose, appearance), value) in enumerate(psnr.items()):
+        run_dir = make_run(workspace, "prova", "nerfacto", f"2026-01-0{age + 1}_000000")
+        runs.update_json(run_dir / runs.RUN_FILE, family="nerf", downscale=1, iterations=30000,
+                         alignment=runs.alignment_id(scene), pose_refinement=pose, appearance_embedding=appearance)
+        (run_dir / runs.METRICS_FILE).write_text(json.dumps({"results": {"psnr": value}, "per_image": [
+            {"name": n, "psnr": value, "ssim": 0.5, "lpips": 0.7} for n in VIEWS]}))
+    numbers = {}
+    assert paper.table_nerf_options("prova", paper.collect("prova"), tmp_path, numbers)
+    assert numbers["nerfacto_2x2.effetto_pose.psnr"] == pytest.approx(-3.0)
+    assert numbers["nerfacto_2x2.effetto_aspetto.psnr"] == pytest.approx(1.0)

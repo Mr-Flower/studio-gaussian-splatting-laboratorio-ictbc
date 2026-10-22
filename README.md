@@ -317,7 +317,7 @@ una superficie in `.glb` serve la mesh della fotogrammetria classica.
 .venv\Scripts\python -m app.convert exports\arco\splatfacto_<data>\splat.ply punti.glb
 
 # tabelle, figure e numeri per l'articolo (dai run gia' fatti)
-.venv\Scripts\python -m app.paper --project arco --out paperrco --scartate foto\LEGGIMI.txt
+.venv\Scripts\python -m app.paper --project arco --out paper\arco --scartate foto\LEGGIMI.txt
 
 # pulizia automatica dei modelli di gaussiane e sito pubblicabile con report e modelli
 .venv\Scripts\python -m app.clean --project arco

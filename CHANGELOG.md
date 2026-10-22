@@ -1,5 +1,29 @@
 # Registro delle modifiche
 
+## 0.5.0 — in corso (secondo piano dell'articolo, PIANO_ARTICOLO_2.md)
+
+### Cambiamenti che incidono sui risultati
+
+- **Metriche con correzione del colore** (fase 7): per ogni vista anche PSNR, SSIM e LPIPS dopo
+  una correzione affine per canale (`psnr_cc`, `ssim_cc`, `lpips_cc`, con i coefficienti), che
+  assorbe le differenze globali di esposizione e di bilanciamento del bianco. Usa l'immagine vera:
+  è un limite superiore, da riportare accanto ai valori grezzi.
+- **Scale di valutazione comuni** (fase 8): con `--eval-side N` le metriche si calcolano anche
+  riducendo entrambe le immagini a lato N (`at_side` in `metrics.json`), per separare risoluzione
+  di training e risoluzione di misura.
+
+### Novità
+
+- Comando `rivaluta`: rivaluta i run già fatti senza rifare il training (salta quelli che hanno
+  già tutte le misure chieste).
+- `app/paper.py`: colonne corrette in tabella 3 e 4 (Holm separato per grezze e corrette),
+  distanza di esposizione delle viste dalle EXIF (EV100), figura `fig5c_esposizione`, tabella
+  `tab6_risoluzione` (risoluzione di training per scala di valutazione) e `tab7_opzioni_nerfstudio`
+  (disegno 2×2 di correzione delle pose e vettore di aspetto).
+- Script dei run: passi 10–14 (rivalutazione, due run di nerfacto per il 2×2, report e materiali).
+- Test che impedisce caratteri di controllo in README, CHANGELOG e piani; corretto di nuovo un
+  carattere di controllo nel README.
+
 ## 0.4.1 — 2026-10-22
 
 - **Pulizia automatica dei modelli** (`python -m app.clean`): toglie gaussiane quasi trasparenti,

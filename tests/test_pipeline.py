@@ -439,3 +439,19 @@ def test_inria_launcher_reseeds_after_safe_state(tmp_path, monkeypatch, capsys):
     import random
     # Gli argomenti arrivano allo script e il primo numero casuale e' quello del seme 7, non dello 0 di safe_state.
     assert "['-s', 'dati', '--eval']" in out and f"valore {random.Random(7).random()}" in out
+
+
+def test_reevaluation_of_existing_runs_with_common_sides(workspace, photos):
+    s = settings(photos, eval_sides=[2640, 1320])
+    s.scene.mkdir(parents=True)
+    (s.scene / colmap_model.SPLIT_FILE).write_text("{}")
+    make_run(workspace, "prova", "splatfacto", "2026-01-01_000000")
+    make_run(workspace, "prova", "splatfacto", "2026-01-02_000000")
+    targets = runs.list_runs("prova")
+    steps = pipeline.reevaluation_steps(s, targets)
+    assert len(steps) == 2 and all(step.group == "eval" for step in steps)
+    command = steps[0].command()
+    assert command[command.index("--run") + 1] == str(targets[0].path)
+    assert [command[i + 1] for i, part in enumerate(command) if part == "--eval-side"] == ["2640", "1320"]
+    steps[1].after(12.0)
+    assert targets[1].info()["eval_sides"] == [2640, 1320]

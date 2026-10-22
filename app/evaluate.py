@@ -4,9 +4,21 @@ Per ogni vista esclusa dal training si genera l'immagine con il modello allenato
 tempo di rendering e si calcolano PSNR, SSIM e LPIPS con lo stesso codice per tutti i metodi,
 qualunque sia il programma che li ha allenati. Alcune viste sono salvate per il confronto visivo.
 
+Oltre alle metriche grezze si calcolano quelle dopo una correzione affine del colore per canale
+(psnr_cc, ssim_cc, lpips_cc): per ogni canale si trovano a e b che minimizzano
+||a * generata + b - vera||^2 sui pixel della vista, si applicano e si limita a 0..1. Le foto del
+rilievo hanno esposizione e bilanciamento del bianco automatici, mentre un modello senza
+compensazione rende un aspetto medio: la correzione assorbe le differenze globali di esposizione
+e di colore, non gli errori locali. Poiche' usa l'immagine vera, il valore corretto e' un limite
+superiore della fedelta' del modello: vanno riportati entrambi.
+
+Con --eval-side N (ripetibile) le metriche si ricalcolano anche dopo aver ridotto entrambe le
+immagini a lato maggiore N (media sulle aree), cosi' modelli allenati a risoluzioni diverse si
+confrontano alla stessa scala; le scale pari o superiori a quella della vista si saltano.
+
 Uso (dall'ambiente con PyTorch):
-  python -m app.evaluate --engine nerfstudio --run <cartella del run>
-  python -m app.evaluate --engine inria --run <cartella del run> --repo <gaussian-splatting>
+  python -m app.evaluate --engine nerfstudio --run <cartella del run> --split <split.json>
+  python -m app.evaluate --engine inria --run <cartella del run> --split <split.json> --repo <gaussian-splatting>
 """
 from __future__ import annotations
 
@@ -16,7 +28,7 @@ import statistics
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Iterator, List, Tuple
+from typing import Callable, Dict, Iterator, List, Sequence, Tuple
 
 import torch
 
@@ -119,15 +131,57 @@ def original_names(views: List[View], split: dict) -> List[View]:
     return sorted(renamed, key=lambda view: view[0])
 
 
-def evaluate(views: List[View], out_dir: Path) -> dict:
+METRICS = ("psnr", "ssim", "lpips")
+CORRECTED = tuple(m + "_cc" for m in METRICS)
+
+
+def color_correct(predicted: torch.Tensor, truth: torch.Tensor) -> Tuple[torch.Tensor, List[float], List[float]]:
+    """Correzione affine per canale di `predicted` [H, W, 3] verso `truth`, ai minimi quadrati.
+
+    Restituisce l'immagine corretta (limitata a 0..1, stesso tipo e dispositivo) e i coefficienti
+    a e b dei tre canali. Calcolo in float64; un canale costante nella generata resta con a = 1.
+    """
+    p = predicted.reshape(-1, predicted.shape[-1]).double()
+    t = truth.reshape(-1, truth.shape[-1]).double()
+    mean_p, mean_t = p.mean(dim=0), t.mean(dim=0)
+    variance = ((p - mean_p) ** 2).mean(dim=0)
+    covariance = ((p - mean_p) * (t - mean_t)).mean(dim=0)
+    a = torch.where(variance > 0, covariance / variance.clamp_min(1e-30), torch.ones_like(variance))
+    b = mean_t - a * mean_p
+    corrected = (predicted.double() * a + b).clamp(0, 1).to(predicted.dtype)
+    return corrected, a.tolist(), b.tolist()
+
+
+def reduce_to_side(image: torch.Tensor, side: int) -> torch.Tensor:
+    """Riduce [1, 3, H, W] a lato maggiore `side`, mediando le aree dei pixel."""
+    height, width = image.shape[-2:]
+    scale = side / max(height, width)
+    size = (max(1, round(height * scale)), max(1, round(width * scale)))
+    return torch.nn.functional.interpolate(image, size=size, mode="area")
+
+
+def evaluate(views: List[View], out_dir: Path, sides: Sequence[int] = ()) -> dict:
     from torchmetrics.functional import structural_similarity_index_measure
     from torchmetrics.image import PeakSignalNoiseRatio
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
     from PIL import Image
 
-    psnr =PeakSignalNoiseRatio(data_range=1.0).cuda()
+    psnr = PeakSignalNoiseRatio(data_range=1.0).cuda()
     lpips = LearnedPerceptualImagePatchSimilarity(net_type="alex", normalize=True).cuda()
+
+    def measure(p: torch.Tensor, t: torch.Tensor) -> Dict[str, float]:
+        """Metriche grezze e corrette per due immagini [1, 3, H, W] sulla scheda grafica."""
+        corrected, a, b = color_correct(p[0].permute(1, 2, 0), t[0].permute(1, 2, 0))
+        c = corrected.permute(2, 0, 1)[None]
+        values = {}
+        for suffix, image in (("", p), ("_cc", c)):
+            values["psnr" + suffix] = psnr(image, t).item()
+            values["ssim" + suffix] = structural_similarity_index_measure(image, t, data_range=1.0).item()
+            values["lpips" + suffix] = lpips(image, t).item()
+        values["cc_a"], values["cc_b"] = a, b
+        return values
+
     per_image: List[dict] = []
     saved = []
     with torch.no_grad():
@@ -140,13 +194,14 @@ def evaluate(views: List[View], out_dir: Path) -> dict:
             predicted, truth = finish(*rendered)
             p = predicted.permute(2, 0, 1)[None].float().cuda()
             t = truth.permute(2, 0, 1)[None].float().cuda()
-            per_image.append({
-                "name": name,
-                "psnr": psnr(p, t).item(),
-                "ssim": structural_similarity_index_measure(p, t, data_range=1.0).item(),
-                "lpips": lpips(p, t).item(),
-                "render_seconds": seconds,
-            })
+            entry = {"name": name, **measure(p, t), "render_seconds": seconds}
+            native = max(p.shape[-2:])
+            at_side = {str(side): {k: v for k, v in measure(reduce_to_side(p, side), reduce_to_side(t, side)).items()
+                                   if k in METRICS + CORRECTED}
+                       for side in sides if side < native}
+            if at_side:
+                entry["at_side"] = at_side
+            per_image.append(entry)
             if index in keep:
                 views_dir = out_dir / VIEWS_DIR
                 views_dir.mkdir(parents=True, exist_ok=True)
@@ -161,12 +216,24 @@ def evaluate(views: List[View], out_dir: Path) -> dict:
     # La prima vista include l'inizializzazione (compilazione dei kernel, cache): si esclude dal tempo medio.
     timed = per_image[1:] or per_image
     render_seconds = statistics.mean(v["render_seconds"] for v in timed)
-    results = {key: statistics.mean(v[key] for v in per_image) for key in ("psnr", "ssim", "lpips")}
-    for key in ("psnr", "ssim", "lpips"):
-        results[key + "_std"] = statistics.pstdev(v[key] for v in per_image)
+    results = summarize(per_image)
+    sides_done = sorted({side for v in per_image for side in v.get("at_side", {})}, key=int)
+    if sides_done:
+        results["at_side"] = {side: summarize([v["at_side"][side] for v in per_image]) for side in sides_done}
     results.update(render_seconds=render_seconds, fps=1.0 / render_seconds, test_images=len(per_image),
                    height=int(predicted.shape[0]), width=int(predicted.shape[1]))
     return {"results": results, "saved_views": saved, "per_image": per_image}
+
+
+def summarize(per_image: List[dict]) -> Dict[str, float]:
+    """Media e deviazione standard di ogni metrica, grezza e corretta."""
+    results = {}
+    for key in METRICS + CORRECTED:
+        values = [v[key] for v in per_image if key in v]
+        if values:
+            results[key] = statistics.mean(values)
+            results[key + "_std"] = statistics.pstdev(values)
+    return results
 
 
 def main() -> None:
@@ -175,15 +242,21 @@ def main() -> None:
     parser.add_argument("--run", type=Path, required=True)
     parser.add_argument("--split", type=Path, required=True, help="split.json del progetto")
     parser.add_argument("--repo", type=Path, help="cartella del codice Inria (solo per --engine inria)")
+    parser.add_argument("--eval-side", type=int, action="append", default=[],
+                        help="calcola le metriche anche a questo lato maggiore, in pixel (ripetibile)")
     args = parser.parse_args()
     run = args.run.resolve()
     split = json.loads(args.split.read_text(encoding="utf-8"))
     views = nerfstudio_views(run) if args.engine == "nerfstudio" else inria_views(run, args.repo.resolve())
-    data = evaluate(original_names(list(views), split), run)
+    data = evaluate(original_names(list(views), split), run, args.eval_side)
     (run / "metrics.json").write_text(json.dumps(data, indent=1), encoding="utf-8")
     r = data["results"]
     print(f"PSNR {r['psnr']:.2f} dB, SSIM {r['ssim']:.4f}, LPIPS {r['lpips']:.4f}, "
           f"{r['fps']:.1f} fotogrammi al secondo su {r['test_images']} viste")
+    print(f"con correzione del colore: PSNR {r['psnr_cc']:.2f} dB, SSIM {r['ssim_cc']:.4f}, LPIPS {r['lpips_cc']:.4f}")
+    for side, s in r.get("at_side", {}).items():
+        print(f"a {side} px: PSNR {s['psnr']:.2f} dB ({s['psnr_cc']:.2f} corretto), LPIPS {s['lpips']:.4f} "
+              f"({s['lpips_cc']:.4f} corretto)")
 
 
 if __name__ == "__main__":

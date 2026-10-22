@@ -417,10 +417,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
             colmap_model.write_split(scene, best_sparse_model(scene / "colmap"))
 
     def evaluation_command() -> List[str]:
-        if not (scene / colmap_model.SPLIT_FILE).exists():
-            raise RuntimeError("Il progetto non ha la suddivisione training/test comune: va rifatto il training.")
-        return [config.python(), "-m", "app.evaluate", "--engine", method.engine, "--run", str(target().path),
-                "--split", str(scene / colmap_model.SPLIT_FILE)] + (["--repo", str(config.inria_repo())] if inria else [])
+        return evaluate_command(s, target())
 
     if trained is not None:
 
@@ -500,7 +497,7 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
         steps.append(Step(
             "eval", f"Valutazione — {method.label}",
             evaluation_command, progress.ratio(r"vista (\d+)/(\d+)"),
-            after=lambda seconds: target().update(eval_seconds=round(seconds, 1))))
+            after=lambda seconds: target().update(eval_seconds=round(seconds, 1), eval_sides=s.eval_sides)))
 
     if "export" in groups:
 
@@ -522,6 +519,31 @@ def _method_steps(s: Settings, method: Method, groups: List[str]) -> List[Step]:
         steps.append(Step("export", f"Esportazione — {method.label}", export_command,
                           before=copy_inria_model if inria else None,
                           after=lambda seconds: target().update(export_seconds=round(seconds, 1))))
+    return steps
+
+
+def evaluate_command(s: Settings, run: Run) -> List[str]:
+    """Comando della valutazione uniforme (app/evaluate.py) per un run."""
+    split = s.scene / colmap_model.SPLIT_FILE
+    if not split.exists():
+        raise RuntimeError("Il progetto non ha la suddivisione training/test comune: va rifatto il training.")
+    command = [config.python(), "-m", "app.evaluate", "--engine", run.engine, "--run", str(run.path), "--split", str(split)]
+    if run.engine == "inria":
+        command += ["--repo", str(config.inria_repo())]
+    for side in s.eval_sides:
+        command += ["--eval-side", str(side)]
+    return command
+
+
+def reevaluation_steps(s: Settings, targets: List[Run]) -> List[Step]:
+    """Valutazione di run gia' allenati (per esempio con misure nuove), senza rifare il training."""
+    steps = []
+    for run in targets:
+        method = METHODS[run.method]
+        steps.append(Step(
+            "eval", f"Rivalutazione — {method.label} ({run.timestamp})",
+            lambda run=run: evaluate_command(s, run), progress.ratio(r"vista (\d+)/(\d+)"),
+            after=lambda seconds, run=run: run.update(eval_seconds=round(seconds, 1), eval_sides=s.eval_sides)))
     return steps
 
 

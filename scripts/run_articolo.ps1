@@ -5,7 +5,8 @@
 # Per riprendere dopo un'interruzione:
 #   -SoloValutazione m1,m2  metodi gia' allenati di cui fare solo valutazione ed esportazione
 #   -Principali m1,m2       metodi da allenare nel confronto principale (al posto di quelli predefiniti)
-#   -Da N                   salta i passi prima del numero N (1 = confronto principale ... 9 = materiali)
+#   -Da N                   salta i passi prima del numero N (1 = confronto principale ... 9 = materiali,
+#                           10-14 = secondo piano: rivalutazione, 2x2 di nerfacto, report e materiali)
 # Ogni comando continua anche se il precedente non riesce; l'esito di ciascuno e' nel registro
 # data\<progetto>\run_articolo.log.
 param(
@@ -69,6 +70,15 @@ if (Passo) {
         Esegui "Controllo delle immagini di riferimento, riduzione $fattore" @('-m', 'app.check_gt', '--project', $Progetto, '--downscale', "$fattore")
     }
 }
+if (Passo) { Esegui 'Report' @('-m', 'app.report', '--project', $Progetto) }
+if (Passo) { Esegui 'Materiali per l''articolo' @('-m', 'app.paper', '--project', $Progetto, '--out', "paper\$Progetto", '--scartate', 'foto\LEGGIMI.txt') }
+# --- Secondo piano (PIANO_ARTICOLO_2.md), passi 10-14.
+# 10. Rivalutazione dei run gia' fatti: correzione del colore e scale di valutazione comuni.
+if (Passo) { Esegui 'Rivalutazione con correzione del colore e scale comuni' @('-m', 'app.cli', 'rivaluta', '--project', $Progetto, '--eval-side', '2640', '--eval-side', '1320') }
+# 11-12. Disegno 2x2 per nerfacto: le due opzioni di nerfstudio una alla volta.
+if (Passo) { Esegui 'nerfacto con il solo vettore di aspetto' ($run + @('--quality', 'massima', '--methods', 'nerfacto', '--appearance-embedding', '--eval-side', '2640', '--eval-side', '1320')) }
+if (Passo) { Esegui 'nerfacto con la sola correzione delle pose' ($run + @('--quality', 'massima', '--methods', 'nerfacto', '--pose-refinement', '--eval-side', '2640', '--eval-side', '1320')) }
+# 13-14. Report e materiali aggiornati.
 if (Passo) { Esegui 'Report' @('-m', 'app.report', '--project', $Progetto) }
 if (Passo) { Esegui 'Materiali per l''articolo' @('-m', 'app.paper', '--project', $Progetto, '--out', "paper\$Progetto", '--scartate', 'foto\LEGGIMI.txt') }
 Add-Content -Path $registro -Encoding utf8 -Value "`n### tutto finito $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"

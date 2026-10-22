@@ -45,6 +45,8 @@ def _parser() -> argparse.ArgumentParser:
                              help="metodi nerfstudio: correzione delle pose durante il training")
         command.add_argument("--appearance-embedding", action="store_true",
                              help="NeRF: un vettore di aspetto per foto (compensa luce e sviluppo)")
+        command.add_argument("--eval-side", dest="eval_sides", type=int, action="append",
+                             help="valuta anche a questo lato maggiore, in pixel (ripetibile)")
         command.add_argument("--seed", type=int,
                              help="seme dei numeri casuali, per ripetere un run (senza: quello del programma di training)")
 
@@ -60,6 +62,13 @@ def _parser() -> argparse.ArgumentParser:
                       help="metodi da confrontare (predefiniti: tutti quelli installati)")
     test.add_argument("--mesh", action="store_true", help="aggiunge la fotogrammetria classica (lenta)")
 
+    again = sub.add_parser("rivaluta", help="rivaluta i run gia' valutati, senza rifare il training")
+    again.add_argument("--project", required=True)
+    again.add_argument("--methods", nargs="+", choices=list(METHODS), help="solo questi metodi")
+    again.add_argument("--eval-side", dest="eval_sides", type=int, action="append", default=[],
+                       help="valuta anche a questo lato maggiore, in pixel (ripetibile)")
+    again.add_argument("--tutti", action="store_true", help="anche i run che hanno gia' tutte le misure chieste")
+
     analyze = sub.add_parser("analyze", help="analizza le foto e propone quelle da escludere")
     analyze.add_argument("--project", required=True)
     analyze.add_argument("--photos", help="cartella delle foto; se omessa usa quella salvata nel progetto")
@@ -74,13 +83,16 @@ def _parser() -> argparse.ArgumentParser:
 def _settings(args: argparse.Namespace) -> Settings:
     s = Settings.load(args.project) or Settings(name=args.project)
     s.name = args.project
-    if args.photos:
+    if getattr(args, "photos", None):
         s.photos = str(Path(args.photos).resolve())
     if getattr(args, "quality", None):
         s.set_quality(args.quality)
+    # Opzioni sempre esplicite: senza l'opzione valgono spente o vuote, anche se il progetto le aveva.
     for field in ("pose_refinement", "appearance_embedding", "seed"):
         if hasattr(args, field):
             setattr(s, field, getattr(args, field))
+    if hasattr(args, "eval_sides"):
+        s.eval_sides = list(args.eval_sides or [])
     for field in ("methods", "iterations", "downscale", "max_side", "camera", "matcher", "mesh_size"):
         value = getattr(args, field, None)
         if value is not None:
@@ -112,6 +124,21 @@ def _run(args: argparse.Namespace) -> int:
         print("Componenti mancanti:\n  " + "\n  ".join(missing), file=sys.stderr)
         return 2
     s = _settings(args)
+    if args.command == "rivaluta":
+        def done(run) -> bool:  # ha gia' le misure nuove: correzione del colore e le scale chieste
+            return "psnr_cc" in run.metrics() and set(s.eval_sides) <= set(run.info().get("eval_sides") or [])
+
+        targets = [r for r in runs.list_runs(s.name) if r.metrics() and r.comparable() is True
+                   and (not args.methods or r.method in args.methods) and (args.tutti or not done(r))]
+        if not targets:
+            print("Nessun run valutato da rivalutare.", file=sys.stderr)
+            return 2
+        error = pipeline.acquire_lock(s.scene)
+        if error:
+            print(error, file=sys.stderr)
+            return 2
+        print(f"{len(targets)} run da rivalutare.")
+        return _execute(s, pipeline.reevaluation_steps(s, targets))
     if args.command == "test":
         s.methods = args.methods or list(config.available_methods())
         steps = ["train", "eval", "export", "report"] + (["mesh"] if args.mesh else [])
@@ -125,7 +152,11 @@ def _run(args: argparse.Namespace) -> int:
         print(error, file=sys.stderr)
         return 2
     s.save()
+    return _execute(s, pipeline.build_steps(s, groups))
 
+
+def _execute(s: Settings, steps) -> int:
+    """Esegue i passi con il runner, mostrando l'avanzamento; il progetto deve essere gia' bloccato."""
     app = QCoreApplication(sys.argv[:1])
     runner = Runner()
     result = {"ok": False}
@@ -155,7 +186,7 @@ def _run(args: argparse.Namespace) -> int:
     keepalive.start(300)
     keepalive.timeout.connect(lambda: None)
     try:
-        QTimer.singleShot(0, lambda: runner.start(pipeline.build_steps(s, groups), s.scene / "pipeline.log"))
+        QTimer.singleShot(0, lambda: runner.start(steps, s.scene / "pipeline.log"))
         app.exec()
     finally:
         pipeline.release_lock(s.scene)
