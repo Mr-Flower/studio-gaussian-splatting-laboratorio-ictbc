@@ -39,7 +39,8 @@ def _parser() -> argparse.ArgumentParser:
                              help="con --downscale 0: lato massimo delle immagini in pixel (0 = nessun limite)")
         command.add_argument("--camera", choices=["auto", "single", "per_folder", "per_image"])
         command.add_argument("--matcher", choices=["exhaustive", "sequential"])
-        command.add_argument("--mesh-size", type=int, help="lato massimo delle immagini per la mesh, in pixel")
+        command.add_argument("--mesh-size", "--mvs-max-side", dest="mesh_size", type=int,
+                             help="lato massimo delle immagini per nuvola densa e mesh, in pixel")
         # Sempre esplicite: senza l'opzione valgono False anche se il progetto le aveva attive.
         command.add_argument("--pose-refinement", action="store_true",
                              help="metodi nerfstudio: correzione delle pose durante il training")

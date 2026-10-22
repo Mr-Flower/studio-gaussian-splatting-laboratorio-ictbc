@@ -455,3 +455,10 @@ def test_reevaluation_of_existing_runs_with_common_sides(workspace, photos):
     assert [command[i + 1] for i, part in enumerate(command) if part == "--eval-side"] == ["2640", "1320"]
     steps[1].after(12.0)
     assert targets[1].info()["eval_sides"] == [2640, 1320]
+
+
+def test_dense_reconstruction_uses_the_requested_side(workspace, photos):
+    s = settings(photos, mesh_size=2640)
+    steps = [step for step in pipeline.build_steps(s, ["mesh"]) if "profondità" in step.label]
+    command = steps[0].command()
+    assert command[command.index("--PatchMatchStereo.max_image_size") + 1] == "2640"
