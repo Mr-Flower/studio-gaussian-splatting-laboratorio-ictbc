@@ -10,7 +10,9 @@ Regole, tutte riferite alla geometria del volo, quindi indipendenti dalla scala 
      solito cielo o sfondo lontano;
   3. fuori dalla zona del volo: piu' lontane in orizzontale del raggio entro cui stanno le camere,
      sopra la camera piu' alta o sotto il terreno;
-  4. isolate: distanza media dalle vicine molto superiore a quella tipica (fluttuanti).
+  4. sopra la parte solida piu' alta della scena (gaussiane fluttuanti nel cielo);
+  5. isolate: distanza media dalle vicine molto superiore a quella tipica (fluttuanti), con una
+     soglia piu' severa per quelle semitrasparenti, che sono quasi sempre artefatti.
 Il riferimento e' il sistema di COLMAP; i modelli di nerfstudio vi vengono riportati con le
 trasformazioni salvate da nerfstudio, e il file pulito resta nel sistema originale del modello.
 
@@ -31,13 +33,17 @@ from . import config, pipeline, runs
 
 CLEAN_FILE = "splat_pulito.ply"
 REPORT_FILE = "pulizia.json"
-MIN_OPACITY = 0.05
+MIN_OPACITY = 0.1
+SOLID_OPACITY = 0.7  # gaussiane considerate superficie solida (per trovare la cima della scena)
+TOP_PERCENTILE = 99.8  # la cima: le gaussiane solide piu' alte dentro la zona del volo
 MAX_SIZE = 0.25  # asse maggiore massimo, in frazioni del raggio della zona del volo
 RING_PERCENTILE = 90  # le camere entro cui sta la scena: il 90% delle distanze orizzontali dal centro
 GROUND_PERCENTILE = 2  # il terreno: le gaussiane piu' basse dentro la zona del volo
 MARGIN = 0.05  # tolleranza sopra e sotto, in frazioni del raggio
 NEIGHBOURS = 16
-ISOLATION_PERCENTILE = 99.5
+ISOLATION_PERCENTILE = 99.0
+FAINT_OPACITY = 0.5  # sotto questa opacita' una gaussiana isolata e' trattata con la soglia severa
+FAINT_ISOLATION_PERCENTILE = 90.0
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -97,13 +103,19 @@ def clean(run: runs.Run, scene: Path) -> Dict:
         "fuori dalla zona del volo": (~inside_ring) | (heights > top + MARGIN * radius)
                                      | (heights < ground - MARGIN * radius),
     }
+    solid = inside_ring & (opacity >= SOLID_OPACITY)
+    if solid.any():
+        summit = float(np.percentile(heights[solid], TOP_PERCENTILE))
+        rules["sopra la scena"] = heights > summit + MARGIN * radius
     keep = ~np.logical_or.reduce(list(rules.values()))
     # Isolate: si valutano solo tra le rimaste, che sono la scena vera.
     tree = cKDTree(points[keep])
     distances, _ = tree.query(points[keep], k=NEIGHBOURS + 1)
     spread = distances[:, 1:].mean(axis=1)
     isolated = np.zeros(len(points), dtype=bool)
-    isolated[np.flatnonzero(keep)] = spread > np.percentile(spread, ISOLATION_PERCENTILE)
+    faint = opacity[keep] < FAINT_OPACITY
+    isolated[np.flatnonzero(keep)] = (spread > np.percentile(spread, ISOLATION_PERCENTILE)) | (
+        faint & (spread > np.percentile(spread, FAINT_ISOLATION_PERCENTILE)))
     rules["isolate"] = isolated & keep
     keep &= ~isolated
 
@@ -116,7 +128,9 @@ def clean(run: runs.Run, scene: Path) -> Dict:
         "removed": {name: int(mask.sum()) for name, mask in rules.items()},
         "parameters": {"min_opacity": MIN_OPACITY, "max_size_of_radius": MAX_SIZE, "ring_percentile": RING_PERCENTILE,
                        "ground_percentile": GROUND_PERCENTILE, "margin_of_radius": MARGIN, "neighbours": NEIGHBOURS,
-                       "isolation_percentile": ISOLATION_PERCENTILE},
+                       "isolation_percentile": ISOLATION_PERCENTILE, "solid_opacity": SOLID_OPACITY,
+                       "top_percentile": TOP_PERCENTILE, "faint_opacity": FAINT_OPACITY,
+                       "faint_isolation_percentile": FAINT_ISOLATION_PERCENTILE},
         "flight_radius_colmap_units": radius,
         "note": "una gaussiana puo' rientrare in piu' regole: i conteggi per regola non si sommano",
     }
