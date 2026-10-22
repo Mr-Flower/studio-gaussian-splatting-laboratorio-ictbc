@@ -765,6 +765,10 @@ def build(project: str, out: Path, discarded_file: Optional[Path] = None, figure
                         "scala.ic95": data.get("scale_horizontal_ci95") if data["use"] == "scale_horizontal" else None,
                         "scala.residuo_orizzontale_m": data.get("horizontal_residual_median_m"),
                         "scala.errore_medio_3d_m": data.get("error_mean_m")})
+    from . import geometry
+    quality = {r.key: statistics.mean(v["psnr_cc"] for v in r.per_view.values())
+               for r in results if r.per_view and all("psnr_cc" in v for v in r.per_view.values())}
+    numbers["geometria.disponibile"] = geometry.build(project, out, numbers, metres, quality)
     if figures:
         figure_cameras(scene, out, metres)
         times = taken_times(scene)
