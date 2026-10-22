@@ -1,5 +1,15 @@
 # Registro delle modifiche
 
+## 0.4.1 — 2026-10-22
+
+- **Pulizia automatica dei modelli** (`python -m app.clean`): toglie gaussiane quasi trasparenti,
+  enormi, isolate o fuori dalla zona del volo e scrive `splat_pulito.ply` accanto all'esportato,
+  con i conteggi (`pulizia.json`) e un'anteprima in pianta, prospetto e fianco. L'originale non
+  cambia e le misure restano quelle del modello originale.
+- **Sito dei risultati** (`python -m app.site`): pagina di presentazione, report completo e modelli
+  puliti nel formato compatto `.splat`, apribili in SuperSplat da un link; tutti i modelli nel
+  sistema di riferimento di COLMAP. Pubblicato per il caso di studio su GitHub Pages.
+
 ## 0.4.0 — 2026-10-22
 
 ### Cambiamenti che incidono sui risultati

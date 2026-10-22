@@ -4,6 +4,9 @@
 ricostruzione 3D di beni architettonici da fotografie: metodo, strumento software e caso di studio
 dell'Arco di Traiano a Benevento.**
 
+**Risultati online:** https://mr-flower.github.io/studio-gaussian-splatting-laboratorio-ictbc/ —
+modelli 3D navigabili nel browser, grafici e report completo del caso di studio.
+
 ## Abstract
 
 **Contesto.** La ricostruzione tridimensionale da fotografie dispone oggi di tre famiglie di metodi:
@@ -315,6 +318,10 @@ una superficie in `.glb` serve la mesh della fotogrammetria classica.
 
 # tabelle, figure e numeri per l'articolo (dai run gia' fatti)
 .venv\Scripts\python -m app.paper --project arco --out paperrco --scartate foto\LEGGIMI.txt
+
+# pulizia automatica dei modelli di gaussiane e sito pubblicabile con report e modelli
+.venv\Scripts\python -m app.clean --project arco
+.venv\Scripts\python -m app.site --project arco --out sito --url https://<utente>.github.io/<repository>/
 
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv
