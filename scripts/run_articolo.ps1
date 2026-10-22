@@ -63,7 +63,12 @@ foreach ($seme in 1, 2) {
 }
 
 # 7-9. Controllo delle immagini di riferimento, report e materiali dell'articolo.
-if (Passo) { Esegui 'Controllo delle immagini di riferimento' @('-m', 'app.check_gt', '--project', $Progetto) }
+if (Passo) {
+    Esegui 'Controllo delle immagini di riferimento' @('-m', 'app.check_gt', '--project', $Progetto)
+    foreach ($fattore in 2, 4) {  # anche alle risoluzioni ridotte delle prove di sensibilita'
+        Esegui "Controllo delle immagini di riferimento, riduzione $fattore" @('-m', 'app.check_gt', '--project', $Progetto, '--downscale', "$fattore")
+    }
+}
 if (Passo) { Esegui 'Report' @('-m', 'app.report', '--project', $Progetto) }
 if (Passo) { Esegui 'Materiali per l''articolo' @('-m', 'app.paper', '--project', $Progetto, '--out', "paper\$Progetto", '--scartate', 'foto\LEGGIMI.txt') }
 Add-Content -Path $registro -Encoding utf8 -Value "`n### tutto finito $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"

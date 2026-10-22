@@ -1,6 +1,6 @@
 # Registro delle modifiche
 
-## 0.4.0 — 2026-10-21
+## 0.4.0 — 2026-10-22
 
 ### Cambiamenti che incidono sui risultati
 
@@ -38,6 +38,10 @@
   2,79 m per unità (IC 95% 2,76–2,82); residui orizzontali di circa 1 m, verticali di 11 m (d.s.).
   `app/paper.py` usa la stima indicata nel campo `use`, se c'è.
 - Script `scripts/run_articolo.ps1`: i run definitivi per l'articolo in sequenza, con registro.
+- Il controllo delle immagini di riferimento usa i run del confronto principale e, con
+  `--downscale`, quelli a una risoluzione ridotta (`check_gt_<fattore>.json`).
+- README: risultati del caso di studio a risoluzione piena, effetto delle opzioni di nerfstudio e
+  della risoluzione, ripetibilità.
 - Lettura di camere e pose dai modelli COLMAP (`colmap_model.read_cameras`, `read_poses`).
 - Picco di memoria della scheda grafica durante ogni training (`gpu_peak_mb` in `run.json`, letto
   con `nvidia-smi` ogni 2 secondi; comprende gli altri programmi che usano la scheda).

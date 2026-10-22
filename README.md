@@ -28,13 +28,23 @@ dimensioni dei modelli e versioni del software, e produce un report con grafici 
 confronto. Il caso di studio è l'Arco di Traiano a Benevento, rilevato da drone con 906 fotografie,
 887 delle quali selezionate dall'analisi automatica.
 
-**Risultati.** L'intera procedura è stata verificata su un set di prova di 40 fotografie con tutte
-le configurazioni. Il confronto completo sul caso di studio è in corso di elaborazione: i valori
-numerici saranno riportati in questa sezione e nella sezione [Risultati](#risultati) al suo termine.
+**Risultati.** A risoluzione piena (5280 px, 111 viste di test) le tre configurazioni di 3D Gaussian
+Splatting raggiungono PSNR tra 19,25 e 19,66 dB, SSIM tra 0,614 e 0,638 e LPIPS tra 0,668 e 0,701;
+nerfacto-big 18,96 dB, 0,578 e 0,724; nerfacto 17,92 dB, 0,562 e 0,756. Nei confronti appaiati vista
+per vista il 3D Gaussian Splatting supera i NeRF in SSIM e LPIPS in tutte le coppie; l'implementazione
+originale e gsplat non differiscono in PSNR, mentre gsplat ha SSIM e LPIPS migliori e un training
+2,7 volte più breve. Riattivare la correzione delle pose e il vettore di aspetto di nerfstudio
+abbassa nerfacto a 15,11 dB. Le metriche dipendono fortemente dalla risoluzione (circa 21,3 dB a
+1320 px per entrambi i 3DGS); la variabilità tra esecuzioni ripetute è di 0,04–0,06 dB. Dettagli
+nella sezione [Risultati](#risultati).
 
-**Conclusioni.** Lo strumento rende il confronto tra metodi un'operazione di routine: l'utente
-fornisce solo la cartella delle fotografie e ottiene i modelli, le misure e il report. Le
-conclusioni sul caso di studio saranno formulate sui risultati misurati.
+**Conclusioni.** A parità di condizioni, sul caso di studio il 3D Gaussian Splatting produce
+immagini più fedeli dei NeRF configurati e un rendering in tempo reale (12–20 fotogrammi al
+secondo a 20 megapixel, contro circa 0,05). La scelta dell'implementazione conta meno della
+famiglia di metodi, mentre impostazioni predefinite e risoluzione di valutazione spostano le
+metriche più delle differenze tra implementazioni: un protocollo comune è indispensabile per
+confrontare i metodi. Lo strumento rende questo confronto un'operazione di routine: l'utente
+fornisce la cartella delle fotografie e ottiene modelli, misure e report.
 
 **Parole chiave:** 3D Gaussian Splatting; Neural Radiance Fields; fotogrammetria; structure from
 motion; multi-view stereo; beni culturali; rilievo da drone; riproducibilità.
@@ -56,9 +66,19 @@ images, one in eight held out; same resolution; same code for PSNR, SSIM and LPI
 time measurement); and records computing times, model sizes and software versions, producing a
 report with charts and side-by-side views. The case study is the Arch of Trajan in Benevento
 (Italy), surveyed by drone with 906 photographs, 887 of which were retained by the automatic
-screening. *Results.* The whole procedure has been verified on a 40-image test set with all
-configurations; the full comparison on the case study is in progress and its figures will be
-reported here. *Keywords:* 3D Gaussian Splatting; Neural Radiance Fields; photogrammetry; structure
+screening. *Results.* At full resolution (5280 px, 111 held-out views) the three 3D Gaussian Splatting
+configurations reach PSNR 19.25–19.66 dB, SSIM 0.614–0.638 and LPIPS 0.668–0.701; nerfacto-big
+18.96 dB, 0.578 and 0.724; nerfacto 17.92 dB, 0.562 and 0.756. In view-by-view paired comparisons
+Gaussian Splatting outperforms NeRF in SSIM and LPIPS for every pair; the original implementation
+and gsplat do not differ in PSNR, while gsplat has better SSIM and LPIPS and trains 2.7 times
+faster. Re-enabling nerfstudio's pose refinement and per-image appearance embedding lowers
+nerfacto to 15.11 dB. Metrics depend strongly on resolution (about 21.3 dB at 1320 px for both
+Gaussian Splatting implementations); run-to-run variability is 0.04–0.06 dB. *Conclusions.* Under
+identical conditions Gaussian Splatting yields more faithful images than the NeRF configurations
+and real-time rendering (12–20 frames per second at 20 megapixels, versus about 0.05). The choice
+of implementation matters less than the method family, whereas default settings and evaluation
+resolution shift the metrics more than implementation differences do, which makes a common
+protocol essential. *Keywords:* 3D Gaussian Splatting; Neural Radiance Fields; photogrammetry; structure
 from motion; multi-view stereo; cultural heritage; UAV survey; reproducibility.
 
 ## Metodi a confronto
@@ -146,8 +166,68 @@ Le fotografie e i modelli non sono nel repository per le loro dimensioni.
 
 ## Risultati
 
-Il confronto sul caso di studio è in corso. Al termine, questa sezione riporterà la tabella delle
-misure e i grafici prodotti dal report (`reports/<progetto>/`).
+Caso di studio: 887 foto (776 di training, 111 di test), allineate tutte da COLMAP con un errore
+medio di riproiezione di 1,07 px. Valori medi sulle 111 viste di test; tra parentesi quadre
+l'intervallo di confidenza al 95% (bootstrap sulle viste). Tabelle complete, confronti appaiati e
+figure si rigenerano con `python -m app.paper` (cartella `paper/<progetto>/`).
+
+### Confronto principale: risoluzione piena, stesse condizioni per tutti
+
+| Metodo | PSNR (dB) | SSIM | LPIPS | Training (h) | Rendering (fps) | Modello |
+|---|---|---|---|---|---|---|
+| 3DGS Inria | 19,66 [19,15; 20,17] | 0,614 | 0,701 | 6,33 | 15,3 | 734 mila gaussiane, 174 MB |
+| 3DGS gsplat (splatfacto) | 19,31 [18,76; 19,87] | 0,629 | 0,684 | 2,37 | 20,4 | 716 mila gaussiane, 169 MB |
+| 3DGS gsplat (splatfacto-big) | 19,25 [18,71; 19,78] | 0,638 | 0,668 | 3,05 | 12,1 | 1,5 milioni di gaussiane, 358 MB |
+| NeRF (nerfacto-big) | 18,96 [18,48; 19,44] | 0,578 | 0,724 | 0,93 | 0,05 | rete neurale; nuvola esportata di 1 milione di punti |
+| NeRF (nerfacto) | 17,92 [17,46; 18,38] | 0,562 | 0,756 | 0,56 | 0,05 | rete neurale; nuvola esportata di 1 milione di punti |
+
+Foto a 5280 × 3956 px, 30.000 iterazioni, correzione delle pose e vettore di aspetto spenti, foto
+lette dal disco durante il training. Scheda NVIDIA RTX A6000 (48 GB).
+
+Nei confronti appaiati vista per vista (test di Wilcoxon, correzione di Holm su tutti i confronti):
+
+- i tre 3DGS superano entrambi i NeRF in SSIM e LPIPS in tutte le coppie (p corretto < 10⁻¹⁰); in
+  PSNR superano nerfacto di 1,4–1,8 dB (mediana delle differenze per vista) e nerfacto-big di
+  0,4–0,6 dB, differenza significativa dopo la correzione solo per il codice Inria;
+- tra le implementazioni del 3DGS il PSNR non differisce in modo significativo; gsplat ha SSIM e
+  LPIPS migliori del codice Inria (mediane +0,016 e −0,020 per splatfacto) e un training 2,7 volte
+  più breve.
+
+### Effetto delle opzioni di nerfstudio
+
+Con la correzione delle pose e il vettore di aspetto per foto riattivati (i default di nerfstudio),
+nerfacto scende da 17,92 a 15,11 dB di PSNR (SSIM 0,539, LPIPS 0,796): le pose corrette in training
+non coincidono più con quelle di COLMAP usate per rendere le viste di test.
+
+### Effetto della risoluzione
+
+| Lato delle foto | 3DGS Inria: PSNR / SSIM / LPIPS | training | 3DGS gsplat: PSNR / SSIM / LPIPS | training |
+|---|---|---|---|---|
+| 5280 px | 19,66 / 0,614 / 0,701 | 6,33 h | 19,31 / 0,629 / 0,684 | 2,37 h |
+| 2640 px | 20,33 / 0,616 / 0,594 | 1,70 h | 20,20 / 0,632 / 0,568 | 0,68 h |
+| 1320 px | 21,32 / 0,696 / 0,448 | 0,46 h | 21,28 / 0,716 / 0,414 | 0,24 h |
+
+Le metriche migliorano riducendo la risoluzione, perché a risoluzione più bassa si confrontano meno
+dettagli: valori misurati a risoluzioni diverse non sono confrontabili tra loro.
+
+### Ripetibilità
+
+A 1320 px, tre esecuzioni con semi diversi danno una deviazione standard del PSNR medio di 0,04 dB
+(Inria) e 0,06 dB (gsplat), molto minore delle differenze tra famiglie di metodi.
+
+### Immagini di riferimento
+
+Riproiettando l'immagine vera del codice Inria nella camera di nerfstudio, le due differiscono in
+media di 42,6 dB di PSNR a risoluzione piena, 39,5 dB a 2640 px e 38,3 dB a 1320 px (SSIM 0,984,
+0,979, 0,976). Al di sotto della risoluzione piena la differenza tra le due procedure di correzione
+della distorsione non è più trascurabile e va considerata nel confronto tra le due implementazioni.
+
+### Non incluso in questo confronto
+
+La fotogrammetria multi-vista (nuvola densa e mesh) non è stata eseguita sul caso di studio: il
+programma la supporta, ma non produce viste confrontabili con le metriche sopra. Le dimensioni
+metriche si possono ricavare dalla scala stimata dal GPS del drone (2,79 m per unità del modello,
+IC 95% 2,76–2,82, dalle sole posizioni orizzontali; `python -m app.scala`).
 
 ## Installazione
 

@@ -35,17 +35,21 @@ NEGLIGIBLE_PSNR = 40.0  # sopra questa soglia media la differenza si cita come l
 BORDER = 2  # pixel esclusi lungo il bordo della zona comune, dove l'interpolazione legge fuori immagine
 
 
-def choose_runs(project: str) -> Tuple[runs.Run, runs.Run]:
-    """L'ultimo run valutato di gsplat (splatfacto o splatfacto-big) e del codice Inria, sulla stessa risoluzione."""
-    found = [r for r in runs.list_runs(project) if r.comparable() is True and r.metrics()]
-    gsplat = next((r for r in found if r.method in ("splatfacto", "splatfacto-big")), None)
-    inria = next((r for r in found if r.method == config.INRIA), None)
-    if gsplat is None or inria is None:
-        raise SystemExit("Servono un run valutato di gsplat (splatfacto o splatfacto-big) e uno del metodo Inria "
-                         "sull'allineamento corrente.")
-    if gsplat.info().get("downscale") != inria.info().get("downscale"):
-        raise SystemExit("I due run sono a risoluzioni diverse: il confronto non avrebbe senso.")
-    return gsplat, inria
+def choose_runs(project: str, downscale: Optional[int] = None) -> Tuple[runs.Run, runs.Run]:
+    """Un run di gsplat (splatfacto o splatfacto-big) e uno del codice Inria fatti nelle stesse condizioni.
+
+    Senza `downscale` si usa il gruppo del confronto principale (quello con piu' metodi, come in
+    report e app/paper.py); con `downscale` il primo gruppo a quel fattore di riduzione.
+    """
+    for group in runs.condition_groups(runs.list_runs(project)):
+        gsplat = next((group[m][0] for m in ("splatfacto", "splatfacto-big") if m in group), None)
+        inria = group.get(config.INRIA, [None])[0]
+        if gsplat is None or inria is None:
+            continue
+        if downscale is None or gsplat.info().get("downscale") == downscale:
+            return gsplat, inria
+    raise SystemExit("Servono un run valutato di gsplat (splatfacto o splatfacto-big) e uno del metodo Inria nelle "
+                     "stesse condizioni, sull'allineamento corrente" + (f" e con riduzione {downscale}." if downscale else "."))
 
 
 def warp(image: torch.Tensor, source: Tuple[float, float, float, float], target: Tuple[float, float, float, float],
@@ -119,10 +123,11 @@ def inria_references(run: runs.Run, scene_dir: Path, split: dict) -> Dict[str, t
     return references
 
 
-def check(project: str) -> Path:
+def check(project: str, downscale: Optional[int] = None) -> Path:
     scene_dir = config.WORK / "data" / project
     split = json.loads((scene_dir / colmap_model.SPLIT_FILE).read_text(encoding="utf-8"))
-    gsplat, inria = choose_runs(project)
+    gsplat, inria = choose_runs(project, downscale)
+    factor = gsplat.info().get("downscale")
     inria_refs = inria_references(inria, scene_dir, split)
     per_view: List[dict] = []
     with torch.no_grad():
@@ -150,10 +155,13 @@ def check(project: str) -> Path:
         "negligible": bool(finite) and statistics.mean(finite) > NEGLIGIBLE_PSNR,
         "threshold_psnr": NEGLIGIBLE_PSNR,
     }
-    out = config.WORK / "reports" / project / "check_gt.json"
+    # Il confronto principale va in check_gt.json; le altre risoluzioni in check_gt_<fattore>.json.
+    name = "check_gt.json" if downscale is None else f"check_gt_{factor}.json"
+    out = config.WORK / "reports" / project / name
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
         "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "runs": {"gsplat": str(gsplat.path), "inria": str(inria.path)},
+        "downscale": factor, "size_nerfstudio": per_view[0]["size_nerfstudio"] if per_view else None,
         "method": "riproiezione dell'immagine Inria nella camera di nerfstudio, interpolazione bilineare, "
                   f"zona comune meno {BORDER} pixel di bordo",
         "summary": summary, "per_view": per_view,
@@ -164,8 +172,10 @@ def check(project: str) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--project", required=True)
+    parser.add_argument("--downscale", type=int,
+                        help="fattore di riduzione dei run da usare (predefinito: quelli del confronto principale)")
     args = parser.parse_args()
-    out = check(args.project)
+    out = check(args.project, args.downscale)
     s = json.loads(out.read_text(encoding="utf-8"))["summary"]
     verdict = "trascurabile" if s["negligible"] else f"NON trascurabile (soglia {s['threshold_psnr']:.0f} dB)"
     print(f"{s['views']} viste: PSNR medio {s['psnr_mean']:.2f} dB (minimo {s['psnr_min']:.2f}), SSIM medio "
