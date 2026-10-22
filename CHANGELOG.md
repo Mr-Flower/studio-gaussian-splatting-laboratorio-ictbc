@@ -6,9 +6,11 @@
   enormi, isolate o fuori dalla zona del volo e scrive `splat_pulito.ply` accanto all'esportato,
   con i conteggi (`pulizia.json`) e un'anteprima in pianta, prospetto e fianco. L'originale non
   cambia e le misure restano quelle del modello originale.
-- **Sito dei risultati** (`python -m app.site`): pagina di presentazione, report completo e modelli
-  puliti nel formato compatto `.splat`, apribili in SuperSplat da un link; tutti i modelli nel
-  sistema di riferimento di COLMAP. Pubblicato per il caso di studio su GitHub Pages.
+- **Sito dei risultati** (`python -m app.site`): pagina di presentazione, report completo e schede
+  dei modelli. I file dei modelli non vanno nel sito, che li renderebbe scaricabili: si preparano a
+  parte (`exports/<progetto>/da_pubblicare/*.splat`, puliti e nel sistema di riferimento di COLMAP)
+  per un visualizzatore esterno, il cui indirizzo si passa con `--viewer metodo=indirizzo`.
+  Pubblicato per il caso di studio su GitHub Pages.
 
 ## 0.4.0 — 2026-10-22
 

@@ -321,7 +321,7 @@ una superficie in `.glb` serve la mesh della fotogrammetria classica.
 
 # pulizia automatica dei modelli di gaussiane e sito pubblicabile con report e modelli
 .venv\Scripts\python -m app.clean --project arco
-.venv\Scripts\python -m app.site --project arco --out sito --url https://<utente>.github.io/<repository>/
+.venv\Scripts\python -m app.site --project arco --out sito [--viewer inria-3dgs=<pagina del visualizzatore>]
 
 # tabella di confronto, anche in CSV
 .venv\Scripts\python -m app.cli report --project arco --csv confronto_arco.csv

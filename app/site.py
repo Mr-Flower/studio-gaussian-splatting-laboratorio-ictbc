@@ -1,11 +1,16 @@
 """Sito pubblicabile (per esempio su GitHub Pages) con i risultati di un progetto.
 
-Contiene una pagina di presentazione, il report completo con grafici e viste a confronto, e i
-modelli di gaussiane puliti (app/clean.py) nel formato compatto .splat, apribili in SuperSplat da
-un link. Tutti i modelli sono portati nel sistema di riferimento di COLMAP, lo stesso del codice
-Inria, cosi' si presentano con lo stesso orientamento.
+Contiene una pagina di presentazione, il report completo con grafici e viste a confronto, e le
+schede dei modelli di gaussiane. I file dei modelli NON vanno nel sito: un sito statico li
+renderebbe scaricabili. Si preparano a parte, puliti (app/clean.py) e nel formato compatto .splat,
+nella sistema di riferimento di COLMAP (lo stesso del codice Inria, cosi' hanno lo stesso
+orientamento), per pubblicarli su un visualizzatore esterno come SuperSplat; l'indirizzo di ogni
+visualizzazione si passa con --viewer e diventa il pulsante della scheda.
 
-Uso:  python -m app.site --project <nome> --out <cartella> --url <indirizzo pubblico del sito>
+Nessun visualizzatore nel browser impedisce davvero di salvare un modello: per mostrarlo, il
+browser deve riceverne i dati. Si puo' solo evitare di offrirlo come file.
+
+Uso:  python -m app.site --project <nome> --out <cartella> [--viewer <metodo>=<indirizzo> ...]
 """
 from __future__ import annotations
 
@@ -15,15 +20,13 @@ import json
 import shutil
 import time
 from pathlib import Path
-from typing import Dict, List
-from urllib.parse import quote
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from . import __version__, clean, config, runs
 
 REPOSITORY = "https://github.com/Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc"
-SUPERSPLAT = "https://superspl.at/editor"
 SH_C0 = 0.28209479177387814
 
 
@@ -67,11 +70,14 @@ def _number(value, digits: int) -> str:
     return f"{value:.{digits}f}".replace(".", ",")
 
 
-def build(project: str, out: Path, url: str) -> Path:
-    url = url.rstrip("/") + "/"
+def build(project: str, out: Path, viewers: Optional[Dict[str, str]] = None,
+          models_out: Optional[Path] = None) -> Path:
+    """Scrive il sito in `out` e i modelli .splat da pubblicare altrove in `models_out` (fuori dal sito)."""
+    viewers = viewers or {}
     report_dir = config.WORK / "reports" / project
     if not (report_dir / "index.html").exists():
         raise SystemExit("Manca il report: generarlo prima con  python -m app.report --project " + project)
+    models_out = models_out or config.WORK / "exports" / project / "da_pubblicare"
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(report_dir, out / "report", ignore=shutil.ignore_patterns("check_gt*.json"))
@@ -81,18 +87,13 @@ def build(project: str, out: Path, url: str) -> Path:
         if not cleaned.exists():
             clean.clean(run, config.WORK / "data" / project)
         method = config.METHODS[run.method]
-        name = f"{run.method}.splat"
-        count = write_splat(gaussians_in_colmap(cleaned, run), out / "modelli" / name)
+        count = write_splat(gaussians_in_colmap(cleaned, run), models_out / f"{run.method}.splat")
         metrics = run.metrics()
-        model_url = url + "modelli/" + name
-        models.append({"label": method.label, "short": method.short, "file": name, "gaussians": count,
-                       "mb": (out / "modelli" / name).stat().st_size / 2**20,
+        models.append({"key": run.method, "label": method.label, "gaussians": count,
                        "psnr": metrics.get("psnr"), "ssim": metrics.get("ssim"), "lpips": metrics.get("lpips"),
-                       "hours": run.info().get("train_seconds", 0) / 3600,
-                       "viewer": f"{SUPERSPLAT}?load={quote(model_url, safe='')}&filename={quote(name)}"})
+                       "hours": run.info().get("train_seconds", 0) / 3600, "viewer": viewers.get(run.method)})
     (out / "index.html").write_text(page(project, models), encoding="utf-8")
     (out / ".nojekyll").write_text("")  # GitHub Pages: pubblica i file cosi' come sono
-    (out / "modelli.json").write_text(json.dumps(models, indent=1, ensure_ascii=False), encoding="utf-8")
     return out / "index.html"
 
 
@@ -101,9 +102,9 @@ def page(project: str, models: List[dict]) -> str:
 <article class="card">
   <h3>{html.escape(m['label'])}</h3>
   <p class="nums">PSNR {_number(m['psnr'], 2)} dB · SSIM {_number(m['ssim'], 3)} · LPIPS {_number(m['lpips'], 3)}<br>
-  training {_number(m['hours'], 1)} h · {f"{m['gaussians']:,}".replace(",", ".")} gaussiane · {_number(m['mb'], 0)} MB</p>
-  <p><a class="button" href="{html.escape(m['viewer'])}" target="_blank" rel="noopener">Apri in 3D (SuperSplat)</a>
-  <a href="modelli/{html.escape(m['file'])}" download>scarica .splat</a></p>
+  training {_number(m['hours'], 1)} h · {f"{m['gaussians']:,}".replace(",", ".")} gaussiane</p>
+  <p>{f'<a class="button" href="{html.escape(m["viewer"])}" target="_blank" rel="noopener">Guarda in 3D</a>'
+      if m["viewer"] else '<span class="note">Visualizzazione 3D in preparazione.</span>'}</p>
 </article>""" for m in models)
     return f"""<!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -132,9 +133,9 @@ allineamento delle camere, le stesse 111 viste di test, la risoluzione piena (52
 Laboratorio ICTBC, ricerca non commerciale.</p>
 
 <h2>Modelli 3D</h2>
-<p class="note">Modelli di gaussiane puliti automaticamente (sfondo, gaussiane trasparenti e fluttuanti tolti). Si aprono
-nel browser con SuperSplat: tasto sinistro per ruotare, destro per spostarsi, rotella per lo zoom. Il primo caricamento
-richiede qualche secondo; se il modello appare capovolto, in SuperSplat si raddrizza dal pannello della scena.</p>
+<p class="note">Modelli di gaussiane puliti automaticamente (sfondo, gaussiane trasparenti e fluttuanti tolti), da
+guardare nel browser: tasto sinistro per ruotare, destro per spostarsi, rotella per lo zoom. I modelli non sono
+distribuiti come file.</p>
 <div class="grid">{cards}</div>
 
 <h2>Qualità e costo</h2>
@@ -164,9 +165,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--project", required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--url", required=True, help="indirizzo pubblico del sito, per i link ai modelli")
+    parser.add_argument("--viewer", action="append", default=[], metavar="METODO=INDIRIZZO",
+                        help="pagina dove si guarda il modello del metodo (per esempio pubblicata con SuperSplat)")
+    parser.add_argument("--modelli", type=Path, help="dove scrivere i .splat da pubblicare (fuori dal sito)")
     args = parser.parse_args()
-    print(f"Sito in {build(args.project, args.out, args.url)}")
+    viewers = dict(item.split("=", 1) for item in args.viewer)
+    print(f"Sito in {build(args.project, args.out, viewers, args.modelli)}")
 
 
 if __name__ == "__main__":
