@@ -12,7 +12,15 @@ Regole, tutte riferite alla geometria del volo, quindi indipendenti dalla scala 
      sopra la camera piu' alta o sotto il terreno;
   4. sopra la parte solida piu' alta della scena (gaussiane fluttuanti nel cielo);
   5. isolate: distanza media dalle vicine molto superiore a quella tipica (fluttuanti), con una
-     soglia piu' severa per quelle semitrasparenti, che sono quasi sempre artefatti.
+     soglia piu' severa per quelle semitrasparenti, che sono quasi sempre artefatti;
+  6. staccate dalla superficie: lontane dalle gaussiane solide piu' di qualche volta la loro
+     spaziatura tipica (macchie di cielo o di vegetazione attaccate agli spigoli);
+  7. color cielo: azzurre in modo netto (blu oltre il rosso di SKY_MARGIN), cioe' cielo rimasto
+     attaccato ai bordi del monumento. La pietra in ombra tende all'azzurro solo di poco.
+Le gaussiane ad ago, che da punti di vista lontani dal training appaiono come graffi, NON si
+tolgono: portano anche il dettaglio fine (scanalature, spigoli) e toglierle impasta la superficie,
+come si e' visto sul caso di studio. Quei graffi si riducono solo allenando con una
+regolarizzazione della forma delle gaussiane.
 Il riferimento e' il sistema di COLMAP; i modelli di nerfstudio vi vengono riportati con le
 trasformazioni salvate da nerfstudio, e il file pulito resta nel sistema originale del modello.
 
@@ -44,6 +52,9 @@ NEIGHBOURS = 16
 ISOLATION_PERCENTILE = 99.0
 FAINT_OPACITY = 0.5  # sotto questa opacita' una gaussiana isolata e' trattata con la soglia severa
 FAINT_ISOLATION_PERCENTILE = 90.0
+NEEDLE_RATIO = 8.0  # asse maggiore / secondo asse: oltre, una gaussiana ad ago non conta come superficie solida
+SKY_MARGIN = 0.12  # differenza minima blu - rosso del colore di base (0..1) per una gaussiana color cielo
+DETACHED_SPACING = 10.0  # distanza dalla superficie solida, in multipli della sua spaziatura mediana
 
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
@@ -119,6 +130,21 @@ def clean(run: runs.Run, scene: Path) -> Dict:
     rules["isolate"] = isolated & keep
     keep &= ~isolated
 
+    axes = np.sort(np.exp(np.stack([vertex[f"scale_{i}"] for i in range(3)], axis=1)), axis=1)[:, ::-1]
+    elongation = axes[:, 0] / np.maximum(axes[:, 1], 1e-12)
+    surface = keep & (opacity >= SOLID_OPACITY) & (elongation < NEEDLE_RATIO / 2)
+    if surface.sum() > NEIGHBOURS:
+        surface_tree = cKDTree(points[surface])
+        spacing = float(np.median(surface_tree.query(points[surface], k=2)[0][:, 1]))
+        distance = np.full(len(points), np.inf)
+        distance[keep] = surface_tree.query(points[keep], k=1)[0]
+        rules["staccate dalla superficie"] = keep & (distance > DETACHED_SPACING * spacing)
+        keep &= ~rules["staccate dalla superficie"]
+    dc = np.stack([vertex[f"f_dc_{i}"] for i in range(3)], axis=1)
+    red, green, blue = np.clip(0.5 + 0.28209479177387814 * dc, 0, 1).T
+    rules["color cielo"] = keep & (blue - red > SKY_MARGIN) & (blue - green > SKY_MARGIN / 2) & (blue > 0.45)
+    keep &= ~rules["color cielo"]
+
     target = run.export_dir / CLEAN_FILE
     PlyData([PlyElement.describe(vertex.data[keep], "vertex")], text=False,
             byte_order=ply.byte_order).write(str(target))
@@ -130,7 +156,8 @@ def clean(run: runs.Run, scene: Path) -> Dict:
                        "ground_percentile": GROUND_PERCENTILE, "margin_of_radius": MARGIN, "neighbours": NEIGHBOURS,
                        "isolation_percentile": ISOLATION_PERCENTILE, "solid_opacity": SOLID_OPACITY,
                        "top_percentile": TOP_PERCENTILE, "faint_opacity": FAINT_OPACITY,
-                       "faint_isolation_percentile": FAINT_ISOLATION_PERCENTILE},
+                       "faint_isolation_percentile": FAINT_ISOLATION_PERCENTILE, "needle_ratio": NEEDLE_RATIO,
+                       "detached_spacing": DETACHED_SPACING, "sky_margin": SKY_MARGIN},
         "flight_radius_colmap_units": radius,
         "note": "una gaussiana puo' rientrare in piu' regole: i conteggi per regola non si sommano",
     }
