@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confronto dei metodi — foto</title>
+<style>
+ body { font-family: system-ui, "Segoe UI", sans-serif; background: #f9f9f7; color: #0b0b0b; margin: 0; }
+ main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px; }
+ h1 { font-size: 24px; margin: 0 0 4px; } h2 { font-size: 18px; margin: 32px 0 10px; }
+ .lead, .note { color: #52514e; } .note { font-size: 14px; }
+ img { max-width: 100%; height: auto; display: block; margin: 8px 0 16px; border: 1px solid #e1e0d9; }
+ .scroll { overflow-x: auto; }
+ table { border-collapse: collapse; background: #fcfcfb; font-size: 14px; }
+ th, td { border: 1px solid #e1e0d9; padding: 6px 10px; text-align: left; vertical-align: top; }
+ th { background: #f0efec; } td { font-variant-numeric: tabular-nums; }
+</style></head><body><main>
+<h1>Confronto dei metodi di ricostruzione 3D — progetto «foto»</h1>
+<p class="lead">Generato il 22/10/2026 alle 00:53 con la versione 0.4.0. Tutti i metodi usano lo stesso
+allineamento delle camere, le stesse foto di training e di test e la stessa risoluzione; le metriche sono calcolate
+con lo stesso codice sulle viste escluse dal training.</p>
+<h2>Qualità</h2><img src="figure/qualita.png" alt="Grafici a barre di PSNR, SSIM e LPIPS per metodo">
+<h2>Costo</h2><img src="figure/costo.png" alt="Grafici a barre di tempo di calcolo, velocità di rendering e dimensione per metodo">
+<h2>Qualità rispetto al tempo</h2><img src='figure/qualita_tempo.png' alt='PSNR rispetto al tempo di training' style='max-width:760px'>
+<h2>Misure</h2><div class="scroll"><table><thead><tr><th>Metodo</th><th>Iterazioni</th><th>Training (min)</th><th>PSNR (dB)</th><th>SSIM</th><th>LPIPS</th><th>Rendering (fps)</th><th>Gaussiane / punti</th><th>Modello esportato (MB)</th></tr></thead><tbody><tr><td>Gaussian splatting (gsplat, splatfacto)</td><td>30.000</td><td>142,5</td><td>19,31</td><td>0,6289</td><td>0,6837</td><td>20,4</td><td>716.004</td><td>169,3</td></tr><tr><td>Gaussian splatting, alta qualità (gsplat, splatfacto-big)</td><td>30.000</td><td>182,8</td><td>19,25</td><td>0,6377</td><td>0,6677</td><td>12,1</td><td>1.515.439</td><td>358,4</td></tr><tr><td>Gaussian splatting originale (Inria)</td><td>30.000</td><td>379,7</td><td>19,66</td><td>0,6141</td><td>0,7014</td><td>15,3</td><td>734.068</td><td>173,6</td></tr><tr><td>NeRF (nerfacto)</td><td>30.000</td><td>33,6</td><td>17,92</td><td>0,5619</td><td>0,7557</td><td>0,0</td><td>1.014.087</td><td>26,1</td></tr><tr><td>NeRF, alta qualità (nerfacto-big)</td><td>30.000</td><td>55,7</td><td>18,96</td><td>0,5783</td><td>0,7242</td><td>0,0</td><td>1.015.428</td><td>26,1</td></tr></tbody></table></div>
+<p class="note">Il tempo di training è la durata dell'intero comando, caricamento dei dati incluso. La velocità di rendering
+è misurata sulle viste di test, alla risoluzione indicata sotto. La tabella completa di tutti i run è in
+<a href="confronto.csv">confronto.csv</a>.</p>
+<p class='note'>Non inclusi, perché fatti in condizioni diverse (risoluzione, iterazioni, correzione delle pose o aspetto per foto): Gaussian splatting originale (Inria) del 2026-10-22; Gaussian splatting (gsplat, splatfacto) del 2026-10-22; Gaussian splatting originale (Inria) del 2026-10-21; Gaussian splatting (gsplat, splatfacto) del 2026-10-21; Gaussian splatting originale (Inria) del 2026-10-21; Gaussian splatting (gsplat, splatfacto) del 2026-10-21; Gaussian splatting originale (Inria) del 2026-10-21; Gaussian splatting (gsplat, splatfacto) del 2026-10-21; NeRF (nerfacto) del 2026-10-21. Sono nella tabella completa.</p><p class='note'>Foto lette dal disco durante il training (non entravano in memoria): Gaussian splatting (gsplat, splatfacto); Gaussian splatting, alta qualità (gsplat, splatfacto-big); Gaussian splatting originale (Inria); NeRF (nerfacto); NeRF, alta qualità (nerfacto-big). Il loro tempo di training include la lettura.</p>
+
+<h2>Viste di test a confronto</h2><img src='figure/vista_1.jpg' alt='Vista di test a confronto'><img src='figure/vista_2.jpg' alt='Vista di test a confronto'><img src='figure/vista_3.jpg' alt='Vista di test a confronto'>
+<h2>Differenze di processo</h2><div class="scroll"><table><thead><tr><th></th><th>3D Gaussian Splatting</th><th>NeRF</th></tr></thead><tbody><tr><td>Rappresentazione</td><td>Insieme esplicito di gaussiane 3D con posizione, forma, opacità e colore dipendente dalla direzione</td><td>Campo di radianza continuo codificato in una rete neurale</td></tr><tr><td>Punto di partenza</td><td>Nuvola sparsa dell&#x27;allineamento</td><td>Solo le pose delle camere</td></tr><tr><td>Ottimizzazione</td><td>Discesa del gradiente sui parametri delle gaussiane, con aggiunta e rimozione durante il training</td><td>Discesa del gradiente sui pesi della rete, campionando raggi dalle immagini</td></tr><tr><td>Rendering</td><td>Rasterizzazione, in tempo reale</td><td>Volumetrico lungo ogni raggio, non in tempo reale</td></tr><tr><td>Risultato</td><td>File .ply di gaussiane, modificabile (pulizia, ritaglio) e pubblicabile sul web</td><td>Pesi della rete; esportabile come nuvola di punti campionata</td></tr><tr><td>Geometria</td><td>Implicita nelle gaussiane; nessuna superficie</td><td>Densità volumetrica; superfici solo per estrazione</td></tr></tbody></table></div>
+<h2>Condizioni dell'esperimento</h2><div class="scroll"><table><thead><tr><th>Condizione</th><th>Valore</th></tr></thead><tbody><tr><td>Foto allineate</td><td>887 su 887</td></tr><tr><td>Errore medio di riproiezione (px)</td><td>1,07</td></tr><tr><td>Foto di training / di test</td><td>776 / 111</td></tr><tr><td>Risoluzione delle immagini valutate</td><td>5279 × 3955 px</td></tr><tr><td>Correzione delle pose (metodi nerfstudio)</td><td>no</td></tr><tr><td>Aspetto per foto (NeRF)</td><td>no</td></tr><tr><td>Scheda grafica</td><td>NVIDIA RTX A6000</td></tr><tr><td>Versione di app</td><td>0.4.0</td></tr><tr><td>Versione di nerfstudio</td><td>1.1.5</td></tr><tr><td>Versione di gsplat</td><td>1.4.0+pt24cu124</td></tr><tr><td>Versione di torch</td><td>2.4.1+cu124</td></tr><tr><td>Versione di tinycudann</td><td>2.0</td></tr><tr><td>Versione di colmap</td><td>4.2.1</td></tr><tr><td>Versione di gaussian-splatting-inria</td><td>54c035f783</td></tr></tbody></table></div>
+<p class="note">Ogni configurazione è stata eseguita una volta: le differenze piccole tra metodi possono rientrare nella
+variabilità tra esecuzioni ripetute, che qui non è stimata.</p>
+</main></body></html>
