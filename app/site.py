@@ -3,7 +3,7 @@
 Contiene una pagina di presentazione, il report completo con grafici e viste a confronto, e le
 schede dei modelli di gaussiane. I file dei modelli NON vanno nel sito: un sito statico li
 renderebbe scaricabili. Si preparano a parte, puliti (app/clean.py) e nel formato compatto .splat,
-nella sistema di riferimento di COLMAP (lo stesso del codice Inria, cosi' hanno lo stesso
+raddrizzati con la verticale del volo sull'asse +y e l'arco al centro (tutti con lo stesso
 orientamento), per pubblicarli su un visualizzatore esterno come SuperSplat; l'indirizzo di ogni
 visualizzazione si passa con --viewer e diventa il pulsante della scheda.
 
@@ -52,6 +52,28 @@ def gaussians_in_colmap(path: Path, run: runs.Run) -> Dict[str, np.ndarray]:
             "opacity": 1 / (1 + np.exp(-np.asarray(v["opacity"], dtype=np.float64)))}
 
 
+def upright(g: Dict[str, np.ndarray], scene: Path) -> Dict[str, np.ndarray]:
+    """Raddrizza il modello: verticale del volo sull'asse +y (l'alto per SuperSplat), arco al centro.
+
+    La verticale e' la direzione media dell'alto delle camere del drone; il lato lungo dell'arco
+    (asse principale in pianta delle gaussiane) va sull'asse x. Si ruotano posizioni e gaussiane.
+    """
+    from scipy.spatial.transform import Rotation
+
+    middle, up, radius, _ = clean.flight_frame(scene)
+    near = np.linalg.norm(g["xyz"] - np.outer(g["xyz"] @ up, up) - middle, axis=1) < radius
+    flat = g["xyz"][near] - np.outer(g["xyz"][near] @ up, up)
+    flat -= flat.mean(axis=0)
+    long_axis = np.linalg.svd(flat, full_matrices=False)[2][0]
+    long_axis -= (long_axis @ up) * up
+    long_axis /= np.linalg.norm(long_axis)
+    third = np.cross(long_axis, up)
+    rotation = np.stack([long_axis, up, third])  # righe: nuovi assi x, y, z nel sistema di COLMAP
+    origin = middle + up * np.percentile(g["xyz"][near] @ up, 2)  # al piede dell'arco
+    turned = Rotation.from_matrix(rotation) * Rotation.from_quat(g["quat"][:, [1, 2, 3, 0]])
+    return {**g, "xyz": (g["xyz"] - origin) @ rotation.T, "quat": turned.as_quat()[:, [3, 0, 1, 2]]}
+
+
 def write_splat(g: Dict[str, np.ndarray], target: Path) -> int:
     """Formato .splat: 32 byte per gaussiana (posizione, dimensioni, colore RGBA, rotazione), dalla piu' visibile."""
     order = np.argsort(-(g["scales"].prod(axis=1) * g["opacity"]))
@@ -87,7 +109,8 @@ def build(project: str, out: Path, viewers: Optional[Dict[str, str]] = None,
         if not cleaned.exists():
             clean.clean(run, config.WORK / "data" / project)
         method = config.METHODS[run.method]
-        count = write_splat(gaussians_in_colmap(cleaned, run), models_out / f"{run.method}.splat")
+        model = upright(gaussians_in_colmap(cleaned, run), config.WORK / "data" / project)
+        count = write_splat(model, models_out / f"{run.method}.splat")
         metrics = run.metrics()
         models.append({"key": run.method, "label": method.label, "gaussians": count,
                        "psnr": metrics.get("psnr"), "ssim": metrics.get("ssim"), "lpips": metrics.get("lpips"),
