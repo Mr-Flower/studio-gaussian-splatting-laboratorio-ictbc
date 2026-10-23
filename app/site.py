@@ -28,6 +28,14 @@ from . import __version__, clean, config, runs
 
 REPOSITORY = "https://github.com/Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc"
 SH_C0 = 0.28209479177387814
+# figure dei materiali per l'articolo (app/paper.py, app/geometry.py) messe nel sito se esistono
+PAPER_FIGURES = {
+    "fig5c_esposizione": "Esposizione: le viste di test con un'esposizione lontana da quella tipica del rilievo hanno "
+                         "PSNR più basso per tutti i metodi, anche dopo la correzione del colore.",
+    "fig6_distanze": "Geometria: distanza di ogni punto dei modelli dalla nuvola densa della fotogrammetria "
+                     "(riferimento, non verità).",
+    "fig6b_distanze_pianta": "La stessa distanza vista dall'alto: i colori chiari sono i punti lontani dalla nuvola densa.",
+}
 
 
 def gaussians_in_colmap(path: Path, run: runs.Run) -> Dict[str, np.ndarray]:
@@ -107,6 +115,12 @@ def build(project: str, out: Path, viewers: Optional[Dict[str, str]] = None,
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(report_dir, out / "report", ignore=shutil.ignore_patterns("check_gt*.json"))
+    paper_dir = config.WORK / "paper" / project
+    figures = [name for name in PAPER_FIGURES if (paper_dir / f"{name}.png").exists()]
+    if figures:
+        (out / "figure").mkdir()
+    for name in figures:
+        shutil.copy2(paper_dir / f"{name}.png", out / "figure" / f"{name}.png")
     models: List[dict] = []
     for run in clean.main_runs(project):
         cleaned = run.export_dir / clean.CLEAN_FILE
@@ -119,12 +133,21 @@ def build(project: str, out: Path, viewers: Optional[Dict[str, str]] = None,
         models.append({"key": run.method, "label": method.label, "gaussians": count,
                        "psnr": metrics.get("psnr"), "ssim": metrics.get("ssim"), "lpips": metrics.get("lpips"),
                        "hours": run.info().get("train_seconds", 0) / 3600, "viewer": viewers.get(run.method)})
-    (out / "index.html").write_text(page(project, models), encoding="utf-8")
+    (out / "index.html").write_text(page(project, models, figures), encoding="utf-8")
     (out / ".nojekyll").write_text("")  # GitHub Pages: pubblica i file cosi' come sono
     return out / "index.html"
 
 
-def page(project: str, models: List[dict]) -> str:
+def page(project: str, models: List[dict], figures: Optional[List[str]] = None) -> str:
+    findings = "".join(f"""
+<figure><img src="figure/{name}.png" alt="{html.escape(PAPER_FIGURES[name])}">
+<figcaption class="note">{html.escape(PAPER_FIGURES[name])}</figcaption></figure>""" for name in figures or [])
+    if findings:
+        findings = f"""
+<h2>Esposizione e geometria</h2>{findings}
+<p class="note">Numeri, test statistici, effetto della risoluzione di training e limiti nella sezione
+<a href="{REPOSITORY}#risultati">Risultati</a> del README.</p>
+"""
     cards = "".join(f"""
 <article class="card">
   <h3>{html.escape(m['label'])}</h3>
@@ -152,6 +175,7 @@ def page(project: str, models: List[dict]) -> str:
    border-radius: 6px; margin-right: 10px; font-weight: 600; }}
  a {{ color: var(--accent); }} img {{ max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fcfcfb; }}
  .note {{ color: var(--muted); font-size: 14px; }}
+ figure {{ margin: 0 0 18px; }} figcaption {{ margin-top: 4px; }}
  footer {{ margin-top: 48px; color: var(--muted); font-size: 13px; }}
 </style></head><body><main>
 <h1>Arco di Traiano, Benevento: 3D Gaussian Splatting e NeRF a confronto</h1>
@@ -174,7 +198,7 @@ distribuiti come file.</p>
 <img src="report/figure/vista_1.jpg" alt="Vista di test 1: foto vera e immagini dei cinque metodi">
 <img src="report/figure/vista_2.jpg" alt="Vista di test 2">
 <img src="report/figure/vista_3.jpg" alt="Vista di test 3">
-
+{findings}
 <h2>Approfondimenti</h2>
 <ul>
  <li><a href="report/index.html">Report completo</a>: tabelle delle misure, differenze di processo, condizioni dell'esperimento.</li>

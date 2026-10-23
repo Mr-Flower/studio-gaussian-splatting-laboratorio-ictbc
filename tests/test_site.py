@@ -33,3 +33,10 @@ def test_splat_file_layout_and_order(tmp_path):
     # La gaussiana piu' grande viene prima; colore e opacita' a 8 bit, rotazione centrata su 128.
     assert np.allclose(raw["xyz"][0], [1, 2, 3]) and list(raw["rgba"][0]) == [0, 0, 255, 230]
     assert list(raw["quat"][0]) == [128, 255, 128, 128] and list(raw["quat"][1]) == [255, 128, 128, 128]
+
+
+def test_page_shows_only_available_paper_figures():
+    without = site.page("p", [])
+    assert "Esposizione e geometria" not in without
+    shown = site.page("p", [], ["fig6_distanze"])
+    assert "figure/fig6_distanze.png" in shown and "fig5c_esposizione" not in shown

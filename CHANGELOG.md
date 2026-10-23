@@ -1,8 +1,17 @@
 # Registro delle modifiche
 
-## 0.5.0 — in corso (secondo piano dell'articolo, PIANO_ARTICOLO_2.md)
+## 0.5.0 — 2026-10-23 (secondo piano dell'articolo, PIANO_ARTICOLO_2.md)
 
 ### Cambiamenti che incidono sui risultati
+
+- **Confronto geometrico con la fotogrammetria** (fase 10, `app/geometry.py`): accuratezza e
+  completezza dei centri delle gaussiane opache e delle nuvole dei NeRF rispetto alla nuvola densa
+  di COLMAP, in metri; tabella `tab8_geometria`, figure `fig6_distanze` e `fig6b_distanze_pianta`,
+  correlazione tra qualità d'immagine e accuratezza. Opzione `--mvs-max-side` per il lato delle
+  immagini della nuvola densa (sul caso di studio 1600 px, per lo spazio su disco).
+- README: risultati e conclusioni riscritti con valori grezzi e corretti, effetto della risoluzione
+  di training, esposizione, disegno 2×2 di nerfacto e geometria; nuovi limiti (riferimento
+  geometrico, assenza di maschera, vettore di aspetto sulle viste di test).
 
 - **Metriche con correzione del colore** (fase 7): per ogni vista anche PSNR, SSIM e LPIPS dopo
   una correzione affine per canale (`psnr_cc`, `ssim_cc`, `lpips_cc`, con i coefficienti), che
@@ -21,6 +30,8 @@
   `tab6_risoluzione` (risoluzione di training per scala di valutazione) e `tab7_opzioni_nerfstudio`
   (disegno 2×2 di correzione delle pose e vettore di aspetto).
 - Script dei run: passi 10–14 (rivalutazione, due run di nerfacto per il 2×2, report e materiali).
+- Pulizia dei modelli più severa: toglie anche le gaussiane color cielo e quelle staccate dalla
+  superficie; i modelli da pubblicare hanno l'alto verso −y, come si aspetta SuperSplat.
 - Test che impedisce caratteri di controllo in README, CHANGELOG e piani; corretto di nuovo un
   carattere di controllo nel README.
 

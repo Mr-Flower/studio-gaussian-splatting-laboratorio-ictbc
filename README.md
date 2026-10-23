@@ -32,21 +32,31 @@ confronto. Il caso di studio è l'Arco di Traiano a Benevento, rilevato da drone
 887 delle quali selezionate dall'analisi automatica.
 
 **Risultati.** A risoluzione piena (5280 px, 111 viste di test) le tre configurazioni di 3D Gaussian
-Splatting raggiungono PSNR tra 19,25 e 19,66 dB, SSIM tra 0,614 e 0,638 e LPIPS tra 0,668 e 0,701;
-nerfacto-big 18,96 dB, 0,578 e 0,724; nerfacto 17,92 dB, 0,562 e 0,756. Nei confronti appaiati vista
-per vista il 3D Gaussian Splatting supera i NeRF in SSIM e LPIPS in tutte le coppie; l'implementazione
-originale e gsplat non differiscono in PSNR, mentre gsplat ha SSIM e LPIPS migliori e un training
-2,7 volte più breve. Riattivare la correzione delle pose e il vettore di aspetto di nerfstudio
-abbassa nerfacto a 15,11 dB. Le metriche dipendono fortemente dalla risoluzione (circa 21,3 dB a
-1320 px per entrambi i 3DGS); la variabilità tra esecuzioni ripetute è di 0,04–0,06 dB. Dettagli
-nella sezione [Risultati](#risultati).
+Splatting raggiungono PSNR tra 19,25 e 19,66 dB (20,14–20,42 dB dopo una correzione affine del
+colore per vista), SSIM tra 0,614 e 0,638 e LPIPS tra 0,668 e 0,701; nerfacto-big 18,96 dB (19,90),
+0,578 e 0,724; nerfacto 17,92 dB (18,89), 0,562 e 0,756. Nei confronti appaiati vista per vista il
+3D Gaussian Splatting supera i NeRF in SSIM e LPIPS in tutte le coppie; l'implementazione originale
+e gsplat non differiscono in PSNR, mentre gsplat ha SSIM e LPIPS migliori e un training 2,7 volte
+più breve. Allenare a risoluzione piena non conviene: misurati tutti a 1320 px, i modelli allenati
+a 1320 px superano quelli allenati a 5280 px di 0,9–1,1 dB (mediana per vista), con un training da
+10 a 14 volte più breve. Le differenze di esposizione tra le foto spiegano parte dell'errore (ρ di
+Spearman tra PSNR e scarto di esposizione da −0,25 a −0,40, anche dopo la correzione del colore).
+In nerfacto la correzione delle pose durante il training costa 2,5 dB, mentre il vettore di
+aspetto per foto ha un effetto trascurabile. Rispetto alla nuvola densa della fotogrammetria i NeRF
+hanno una distanza mediana di 1,9–2,2 cm e il 92% dei punti entro 10 cm, il 3D Gaussian Splatting
+3,1–3,3 cm e il 67–74%; il 3D Gaussian Splatting copre però meglio la superficie (fino al 92,6% della
+nuvola densa entro 10 cm). La variabilità tra esecuzioni ripetute è di 0,04–0,06 dB. Dettagli nella
+sezione [Risultati](#risultati).
 
 **Conclusioni.** A parità di condizioni, sul caso di studio il 3D Gaussian Splatting produce
-immagini più fedeli dei NeRF configurati e un rendering in tempo reale (12–20 fotogrammi al
-secondo a 20 megapixel, contro circa 0,05). La scelta dell'implementazione conta meno della
-famiglia di metodi, mentre impostazioni predefinite e risoluzione di valutazione spostano le
-metriche più delle differenze tra implementazioni: un protocollo comune è indispensabile per
-confrontare i metodi. Lo strumento rende questo confronto un'operazione di routine: l'utente
+immagini più fedeli dei NeRF configurati e un rendering in tempo reale (12–23 fotogrammi al
+secondo a 20 megapixel, contro 0,02–0,05), ma non una geometria più precisa: la qualità delle
+immagini non predice l'accuratezza geometrica. La scelta dell'implementazione conta meno della
+famiglia di metodi, mentre impostazioni predefinite, risoluzione di training e di valutazione ed
+esposizione delle foto spostano le metriche più delle differenze tra implementazioni: un protocollo
+comune è indispensabile per confrontare i metodi. Le conclusioni non cambiano con la correzione del
+colore, che alza tutte le metriche di 0,8–1,0 dB e rende significativo anche il vantaggio in PSNR di
+gsplat su nerfacto-big. Lo strumento rende questo confronto un'operazione di routine: l'utente
 fornisce la cartella delle fotografie e ottiene modelli, misure e report.
 
 **Parole chiave:** 3D Gaussian Splatting; Neural Radiance Fields; fotogrammetria; structure from
@@ -70,18 +80,26 @@ time measurement); and records computing times, model sizes and software version
 report with charts and side-by-side views. The case study is the Arch of Trajan in Benevento
 (Italy), surveyed by drone with 906 photographs, 887 of which were retained by the automatic
 screening. *Results.* At full resolution (5280 px, 111 held-out views) the three 3D Gaussian Splatting
-configurations reach PSNR 19.25–19.66 dB, SSIM 0.614–0.638 and LPIPS 0.668–0.701; nerfacto-big
-18.96 dB, 0.578 and 0.724; nerfacto 17.92 dB, 0.562 and 0.756. In view-by-view paired comparisons
-Gaussian Splatting outperforms NeRF in SSIM and LPIPS for every pair; the original implementation
-and gsplat do not differ in PSNR, while gsplat has better SSIM and LPIPS and trains 2.7 times
-faster. Re-enabling nerfstudio's pose refinement and per-image appearance embedding lowers
-nerfacto to 15.11 dB. Metrics depend strongly on resolution (about 21.3 dB at 1320 px for both
-Gaussian Splatting implementations); run-to-run variability is 0.04–0.06 dB. *Conclusions.* Under
-identical conditions Gaussian Splatting yields more faithful images than the NeRF configurations
-and real-time rendering (12–20 frames per second at 20 megapixels, versus about 0.05). The choice
-of implementation matters less than the method family, whereas default settings and evaluation
-resolution shift the metrics more than implementation differences do, which makes a common
-protocol essential. *Keywords:* 3D Gaussian Splatting; Neural Radiance Fields; photogrammetry; structure
+configurations reach PSNR 19.25–19.66 dB (20.14–20.42 dB after a per-view affine colour correction),
+SSIM 0.614–0.638 and LPIPS 0.668–0.701; nerfacto-big 18.96 dB (19.90), 0.578 and 0.724; nerfacto
+17.92 dB (18.89), 0.562 and 0.756. In view-by-view paired comparisons Gaussian Splatting outperforms
+NeRF in SSIM and LPIPS for every pair; the original implementation and gsplat do not differ in PSNR,
+while gsplat has better SSIM and LPIPS and trains 2.7 times faster. Training at full resolution does
+not pay off: evaluated at 1320 px, models trained at 1320 px beat those trained at 5280 px by
+0.9–1.1 dB (median per view) and train 10 to 14 times faster. Exposure differences between photos
+explain part of the error (Spearman ρ between PSNR and exposure offset from −0.25 to −0.40, also
+after colour correction). In nerfacto, pose refinement during training costs 2.5 dB, while the
+per-image appearance embedding has a negligible effect. Against the photogrammetric dense cloud,
+NeRF points have a median distance of 1.9–2.2 cm with 92% within 10 cm, Gaussian Splatting
+3.1–3.3 cm and 67–74%; Gaussian Splatting, however, covers the surface better (up to 92.6% of the
+dense cloud within 10 cm). Run-to-run variability is 0.04–0.06 dB. *Conclusions.* Under identical
+conditions Gaussian Splatting yields more faithful images than the NeRF configurations and
+real-time rendering (12–23 frames per second at 20 megapixels, versus 0.02–0.05), but not a more
+accurate geometry: image quality does not predict geometric accuracy. The choice of implementation
+matters less than the method family, whereas default settings, training and evaluation resolution
+and photo exposure shift the metrics more than implementation differences do, which makes a common
+protocol essential. The conclusions hold with colour correction, which raises all metrics by
+0.8–1.0 dB and also makes gsplat's PSNR advantage over nerfacto-big significant. *Keywords:* 3D Gaussian Splatting; Neural Radiance Fields; photogrammetry; structure
 from motion; multi-view stereo; cultural heritage; UAV survey; reproducibility.
 
 ## Metodi a confronto
@@ -129,16 +147,32 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
    misurarne l'effetto, e i run fatti con opzioni diverse non vengono mescolati.
 7. **Valutazione.** Per ogni vista di test si genera l'immagine con il modello allenato e si
    calcolano PSNR, SSIM [8] e LPIPS [9] (rete AlexNet) con lo stesso codice per tutti i metodi. La
-   velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima.
-8. **Tracciabilità.** Ogni run salva parametri, opzioni di protocollo, durata di ogni passo, picco di
+   velocità di rendering è il tempo medio di generazione di una vista, esclusa la prima. Le stesse
+   metriche si calcolano anche dopo una correzione affine del colore per canale (valori
+   «corretti»), che assorbe le differenze globali di esposizione e di bilanciamento del bianco: usa
+   l'immagine vera, quindi è un limite superiore e si riporta accanto ai valori grezzi. Con
+   `--eval-side N` le metriche si calcolano anche riducendo entrambe le immagini a lato N, per
+   confrontare a una scala comune modelli allenati a risoluzioni diverse.
+8. **Geometria.** I centri delle gaussiane con opacità maggiore di 0,5 e le nuvole esportate dai
+   NeRF si confrontano con la nuvola densa della fotogrammetria (`app/geometry.py`), dentro il
+   riquadro della nuvola sparsa (percentili 2–98): accuratezza (distanza di ogni punto del modello
+   dalla nuvola densa) e completezza (distanza di ogni punto della nuvola densa dal modello), in
+   metri con la scala stimata dal GPS.
+9. **Tracciabilità.** Ogni run salva parametri, opzioni di protocollo, durata di ogni passo, picco di
    memoria della scheda grafica, scheda grafica, versioni dei componenti e l'impronta
    dell'allineamento usato.
 
 ### Limiti
 
-- Le metriche misurano la fedeltà delle immagini, non l'accuratezza geometrica. La fotogrammetria
-  non produce immagini da nuovi punti di vista e non ha quindi PSNR, SSIM o LPIPS: il confronto con
-  gli altri metodi sul piano geometrico richiede un riferimento metrico indipendente.
+- PSNR, SSIM e LPIPS misurano la fedeltà delle immagini, non l'accuratezza geometrica. La
+  fotogrammetria non produce immagini da nuovi punti di vista e non ha quindi queste metriche. Il
+  confronto geometrico usa la sua nuvola densa come riferimento, non come verità: ha errori propri,
+  e sul caso di studio è calcolata a 1600 px per limiti di disco (circa 155 GB a 2640 px). Inoltre
+  il confronto non è del tutto alla pari: i centri delle gaussiane stanno dentro o attorno alla
+  superficie, mentre i punti esportati dai NeRF stanno sulla superficie stimata. Non c'è ancora un
+  riferimento metrico indipendente (misure a terra o un rilievo laser).
+- Le metriche comprendono tutta l'immagine, cielo e dintorni inclusi: non si usa una maschera
+  dell'arco, per cui le differenze riguardano la scena intera e non solo il monumento.
 - L'immagine vera con cui si confronta ogni vista è preparata dal programma che ha allenato il
   modello: nerfstudio e il codice Inria correggono la distorsione dell'obiettivo con procedure
   diverse e ritagli diversi. Riproiettando l'una nella camera dell'altra (`app/check_gt.py`), sul
@@ -147,7 +181,12 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
   vere dei NeRF sono le foto non corrette, perché nerfacto tiene conto della distorsione nei raggi.
 - Nel confronto principale nessun metodo compensa le differenze di luce e di sviluppo tra le foto.
   nerfacto potrebbe farlo con il suo vettore di aspetto per foto, spento per default per tenere i
-  metodi nelle stesse condizioni (punto 6); il suo effetto si misura con un run a parte.
+  metodi nelle stesse condizioni (punto 6); il suo effetto si misura con un run a parte. Anche
+  acceso, il vettore di aspetto non può aiutare sulle viste di test: per foto che non ha visto in
+  training nerfstudio usa la media dei vettori appresi, mentre la valutazione di NeRF in the Wild
+  ottimizza il vettore sulla metà sinistra di ogni immagine di test e misura sull'altra metà. La
+  correzione affine del colore dei valori corretti compensa in parte questo limite per tutti i
+  metodi allo stesso modo.
 - Il picco di memoria della scheda grafica è letto con `nvidia-smi` e comprende gli altri programmi
   che la usano in quel momento.
 - La variabilità tra esecuzioni si stima ripetendo i run con semi diversi (`--seed`); anche con lo
@@ -176,42 +215,96 @@ figure si rigenerano con `python -m app.paper` (cartella `paper/<progetto>/`).
 
 ### Confronto principale: risoluzione piena, stesse condizioni per tutti
 
-| Metodo | PSNR (dB) | SSIM | LPIPS | Training (h) | Rendering (fps) | Modello |
-|---|---|---|---|---|---|---|
-| 3DGS Inria | 19,66 [19,15; 20,17] | 0,614 | 0,701 | 6,33 | 15,3 | 734 mila gaussiane, 174 MB |
-| 3DGS gsplat (splatfacto) | 19,31 [18,76; 19,87] | 0,629 | 0,684 | 2,37 | 20,4 | 716 mila gaussiane, 169 MB |
-| 3DGS gsplat (splatfacto-big) | 19,25 [18,71; 19,78] | 0,638 | 0,668 | 3,05 | 12,1 | 1,5 milioni di gaussiane, 358 MB |
-| NeRF (nerfacto-big) | 18,96 [18,48; 19,44] | 0,578 | 0,724 | 0,93 | 0,05 | rete neurale; nuvola esportata di 1 milione di punti |
-| NeRF (nerfacto) | 17,92 [17,46; 18,38] | 0,562 | 0,756 | 0,56 | 0,05 | rete neurale; nuvola esportata di 1 milione di punti |
+| Metodo | PSNR (dB) | PSNR corretto (dB) | SSIM | LPIPS | Training (h) | Rendering (fps) | Modello |
+|---|---|---|---|---|---|---|---|
+| 3DGS Inria | 19,66 [19,15; 20,17] | 20,42 [19,94; 20,92] | 0,614 | 0,701 | 6,33 | 15,6 | 734 mila gaussiane, 174 MB |
+| 3DGS gsplat (splatfacto) | 19,31 [18,76; 19,87] | 20,14 [19,61; 20,67] | 0,629 | 0,684 | 2,37 | 23,1 | 716 mila gaussiane, 169 MB |
+| 3DGS gsplat (splatfacto-big) | 19,25 [18,71; 19,78] | 20,19 [19,67; 20,72] | 0,638 | 0,668 | 3,05 | 12,5 | 1,5 milioni di gaussiane, 358 MB |
+| NeRF (nerfacto-big) | 18,96 [18,48; 19,44] | 19,90 [19,44; 20,38] | 0,578 | 0,724 | 0,93 | 0,02 | rete neurale; nuvola esportata di 1 milione di punti |
+| NeRF (nerfacto) | 17,92 [17,46; 18,38] | 18,89 [18,45; 19,34] | 0,562 | 0,756 | 0,56 | 0,05 | rete neurale; nuvola esportata di 1 milione di punti |
 
 Foto a 5280 × 3956 px, 30.000 iterazioni, correzione delle pose e vettore di aspetto spenti, foto
-lette dal disco durante il training. Scheda NVIDIA RTX A6000 (48 GB).
+lette dal disco durante il training. Scheda NVIDIA RTX A6000 (48 GB). La correzione del colore alza
+il PSNR di 0,76 dB (Inria) e di 0,83–0,97 dB (gli altri), SSIM e LPIPS di meno di 0,01: l'ordine
+dei metodi non cambia.
 
-Nei confronti appaiati vista per vista (test di Wilcoxon, correzione di Holm su tutti i confronti):
+Nei confronti appaiati vista per vista (test di Wilcoxon, correzione di Holm su tutti i confronti,
+separata per valori grezzi e corretti):
 
 - i tre 3DGS superano entrambi i NeRF in SSIM e LPIPS in tutte le coppie (p corretto < 10⁻¹⁰); in
   PSNR superano nerfacto di 1,4–1,8 dB (mediana delle differenze per vista) e nerfacto-big di
-  0,4–0,6 dB, differenza significativa dopo la correzione solo per il codice Inria;
-- tra le implementazioni del 3DGS il PSNR non differisce in modo significativo; gsplat ha SSIM e
-  LPIPS migliori del codice Inria (mediane +0,016 e −0,020 per splatfacto) e un training 2,7 volte
-  più breve.
+  0,4–0,6 dB. Sui valori grezzi il vantaggio su nerfacto-big è significativo solo per il codice
+  Inria; sui valori corretti lo è per tutti e tre (p corretto < 0,03). È l'unico punto in cui
+  grezzi e corretti portano a conclusioni diverse: vale l'affermazione sui corretti, perché le
+  differenze di esposizione delle foto di test non dipendono dal metodo;
+- tra le implementazioni del 3DGS il PSNR non differisce in modo significativo, né grezzo né
+  corretto; gsplat ha SSIM e LPIPS migliori del codice Inria (mediane +0,016 e −0,020 per
+  splatfacto) e un training 2,7 volte più breve.
+
+### Effetto della risoluzione di training
+
+Ogni modello è valutato a piena risoluzione e, riducendo immagine generata e immagine vera, a 2640 e
+1320 px. Valori corretti, PSNR / SSIM / LPIPS:
+
+| Metodo | Lato di training | Valutato a 5280 px | a 2640 px | a 1320 px | Gaussiane | Training |
+|---|---|---|---|---|---|---|
+| 3DGS Inria | 5280 px | 20,42 / 0,616 / 0,698 | 20,91 / 0,599 / 0,626 | 21,43 / 0,623 / 0,534 | 734 mila | 6,33 h |
+| | 2640 px | – | 21,16 / 0,618 / 0,591 | 21,84 / 0,665 / 0,487 | 904 mila | 1,70 h |
+| | 1320 px | – | – | 22,28 / 0,698 / 0,444 | 1,15 milioni | 0,46 h |
+| 3DGS gsplat (splatfacto) | 5280 px | 20,14 / 0,631 / 0,682 | 20,58 / 0,612 / 0,611 | 21,07 / 0,632 / 0,529 | 716 mila | 2,37 h |
+| | 2640 px | – | 21,08 / 0,634 / 0,565 | 21,94 / 0,695 / 0,452 | 797 mila | 0,68 h |
+| | 1320 px | – | – | 22,34 / 0,717 / 0,411 | 762 mila | 0,24 h |
+
+A ogni scala di valutazione vince il modello allenato a quella scala: a 1320 px i modelli allenati
+a piena risoluzione perdono 0,9 dB (Inria) e 1,1 dB (gsplat) di PSNR corretto, mediana per vista.
+Il numero di gaussiane non cresce con la risoluzione di training: probabilmente il modello non ha
+abbastanza elementi per il dettaglio fine delle foto da 20 megapixel. Con 30.000 iterazioni e i
+parametri predefiniti, allenare a piena risoluzione costa da 10 a 14 volte di più e dà modelli
+peggiori alle scale misurate. Valori misurati a scale diverse non sono confrontabili tra loro.
+
+### Esposizione delle foto
+
+L'esposizione automatica del drone varia tra le foto: lo scarto mediano dalla mediana del rilievo
+è di 0,45 EV (dai dati EXIF, 104 viste di test su 111; le foto sviluppate dai DNG non li hanno). Le
+viste più lontane dall'esposizione tipica hanno PSNR più basso per tutti i metodi (ρ di Spearman da
+−0,30 a −0,39 sui grezzi, da −0,25 a −0,40 sui corretti, tutti p < 0,01). La correzione affine del
+colore non elimina l'effetto, che quindi non è solo un cambio globale di luminosità. Vista per vista,
+l'ordine tra il codice Inria e splatfacto si inverte in 18 viste su 111.
 
 ### Effetto delle opzioni di nerfstudio
 
-Con la correzione delle pose e il vettore di aspetto per foto riattivati (i default di nerfstudio),
-nerfacto scende da 17,92 a 15,11 dB di PSNR (SSIM 0,539, LPIPS 0,796): le pose corrette in training
-non coincidono più con quelle di COLMAP usate per rendere le viste di test.
+Disegno 2×2 su nerfacto, PSNR grezzo (corretto):
 
-### Effetto della risoluzione
+| | Vettore di aspetto spento | Vettore di aspetto acceso |
+|---|---|---|
+| Correzione delle pose spenta | 17,92 (18,89) | 17,28 (18,84) |
+| Correzione delle pose accesa | 14,99 (15,91) | 15,11 (16,25) |
 
-| Lato delle foto | 3DGS Inria: PSNR / SSIM / LPIPS | training | 3DGS gsplat: PSNR / SSIM / LPIPS | training |
-|---|---|---|---|---|
-| 5280 px | 19,66 / 0,614 / 0,701 | 6,33 h | 19,31 / 0,629 / 0,684 | 2,37 h |
-| 2640 px | 20,33 / 0,616 / 0,594 | 1,70 h | 20,20 / 0,632 / 0,568 | 0,68 h |
-| 1320 px | 21,32 / 0,696 / 0,448 | 0,46 h | 21,28 / 0,716 / 0,414 | 0,24 h |
+La correzione delle pose costa 2,5 dB (2,8 corretti): le pose corrette in training non coincidono
+più con quelle di COLMAP usate per rendere le viste di test. Il vettore di aspetto ha un effetto
+trascurabile (−0,26 dB grezzi, +0,14 corretti), coerente con il limite descritto sopra.
 
-Le metriche migliorano riducendo la risoluzione, perché a risoluzione più bassa si confrontano meno
-dettagli: valori misurati a risoluzioni diverse non sono confrontabili tra loro.
+### Confronto geometrico con la fotogrammetria
+
+Nuvola densa di COLMAP calcolata a 1600 px: 27,9 milioni di punti e una mesh di 12,8 milioni di
+triangoli in 8,8 ore. Distanze in metri, su 2 milioni di punti per nuvola:
+
+| Metodo | Accuratezza: mediana | 90° percentile | entro 10 cm | Completezza: mediana | entro 10 cm |
+|---|---|---|---|---|---|
+| NeRF (nerfacto-big) | 1,9 cm | 8,0 cm | 92,3% | 2,9 cm | 86,1% |
+| NeRF (nerfacto) | 2,2 cm | 8,3 cm | 92,1% | 3,4 cm | 83,7% |
+| 3DGS gsplat (splatfacto) | 3,3 cm | 28,9 cm | 73,7% | 3,8 cm | 88,9% |
+| 3DGS gsplat (splatfacto-big) | 3,1 cm | 32,9 cm | 72,8% | 3,1 cm | 92,6% |
+| 3DGS Inria | 3,3 cm | 36,7 cm | 67,2% | 4,5 cm | 85,5% |
+
+I punti dei NeRF sono più vicini alla superficie della fotogrammetria; il 3DGS ne copre di più
+(splatfacto-big è il più completo), ma ha una coda di gaussiane lontane dalla superficie. Tra
+qualità delle immagini (PSNR corretto) e accuratezza mediana la correlazione di rango sui cinque
+metodi è ρ = +0,80 (p = 0,10): non significativa, ma di segno opposto a quello atteso, cioè i
+metodi con le immagini migliori non hanno la geometria più precisa. Sulla sommità dell'attico il
+3DGS mette punti lontani dalla nuvola densa, dove i NeRF non ne hanno: è una zona vista poco dalla
+fotogrammetria, oppure gaussiane sopra la superficie. Si veda il limite sul confronto nella sezione
+[Limiti](#limiti).
 
 ### Ripetibilità
 
@@ -225,12 +318,12 @@ media di 42,6 dB di PSNR a risoluzione piena, 39,5 dB a 2640 px e 38,3 dB a 1320
 0,979, 0,976). Al di sotto della risoluzione piena la differenza tra le due procedure di correzione
 della distorsione non è più trascurabile e va considerata nel confronto tra le due implementazioni.
 
-### Non incluso in questo confronto
+### Scala
 
-La fotogrammetria multi-vista (nuvola densa e mesh) non è stata eseguita sul caso di studio: il
-programma la supporta, ma non produce viste confrontabili con le metriche sopra. Le dimensioni
-metriche si possono ricavare dalla scala stimata dal GPS del drone (2,79 m per unità del modello,
-IC 95% 2,76–2,82, dalle sole posizioni orizzontali; `python -m app.scala`).
+Le distanze in metri usano la scala stimata dal GPS del drone: 2,79 m per unità del modello (IC 95%
+2,76–2,82), dalle sole posizioni orizzontali, perché la quota del GPS è molto meno precisa (residuo
+orizzontale medio 1,39 m; `python -m app.scala`). Non è ancora verificata con una misura nota
+dell'arco.
 
 ## Installazione
 
