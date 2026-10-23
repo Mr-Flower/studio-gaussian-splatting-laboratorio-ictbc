@@ -17,6 +17,7 @@
    border-radius: 6px; margin-right: 10px; font-weight: 600; }
  a { color: var(--accent); } img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fcfcfb; }
  .note { color: var(--muted); font-size: 14px; }
+ figure { margin: 0 0 18px; } figcaption { margin-top: 4px; }
  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
 </style></head><body><main>
 <h1>Arco di Traiano, Benevento: 3D Gaussian Splatting e NeRF a confronto</h1>
@@ -32,19 +33,19 @@ distribuiti come file.</p>
 <article class="card">
   <h3>Gaussian splatting (gsplat, splatfacto)</h3>
   <p class="nums">PSNR 19,31 dB · SSIM 0,629 · LPIPS 0,684<br>
-  training 2,4 h · 413.602 gaussiane</p>
+  training 2,4 h · 382.733 gaussiane</p>
   <p><span class="note">Visualizzazione 3D in preparazione.</span></p>
 </article>
 <article class="card">
   <h3>Gaussian splatting, alta qualità (gsplat, splatfacto-big)</h3>
   <p class="nums">PSNR 19,25 dB · SSIM 0,638 · LPIPS 0,668<br>
-  training 3,0 h · 831.037 gaussiane</p>
+  training 3,0 h · 662.297 gaussiane</p>
   <p><span class="note">Visualizzazione 3D in preparazione.</span></p>
 </article>
 <article class="card">
   <h3>Gaussian splatting originale (Inria)</h3>
   <p class="nums">PSNR 19,66 dB · SSIM 0,614 · LPIPS 0,701<br>
-  training 6,3 h · 427.204 gaussiane</p>
+  training 6,3 h · 327.317 gaussiane</p>
   <p><span class="note">Visualizzazione 3D in preparazione.</span></p>
 </article></div>
 
@@ -58,6 +59,16 @@ distribuiti come file.</p>
 <img src="report/figure/vista_2.jpg" alt="Vista di test 2">
 <img src="report/figure/vista_3.jpg" alt="Vista di test 3">
 
+<h2>Esposizione e geometria</h2>
+<figure><img src="figure/fig5c_esposizione.png" alt="Esposizione: le viste di test con un&#x27;esposizione lontana da quella tipica del rilievo hanno PSNR più basso per tutti i metodi, anche dopo la correzione del colore.">
+<figcaption class="note">Esposizione: le viste di test con un&#x27;esposizione lontana da quella tipica del rilievo hanno PSNR più basso per tutti i metodi, anche dopo la correzione del colore.</figcaption></figure>
+<figure><img src="figure/fig6_distanze.png" alt="Geometria: distanza di ogni punto dei modelli dalla nuvola densa della fotogrammetria (riferimento, non verità).">
+<figcaption class="note">Geometria: distanza di ogni punto dei modelli dalla nuvola densa della fotogrammetria (riferimento, non verità).</figcaption></figure>
+<figure><img src="figure/fig6b_distanze_pianta.png" alt="La stessa distanza vista dall&#x27;alto: i colori chiari sono i punti lontani dalla nuvola densa.">
+<figcaption class="note">La stessa distanza vista dall&#x27;alto: i colori chiari sono i punti lontani dalla nuvola densa.</figcaption></figure>
+<p class="note">Numeri, test statistici, effetto della risoluzione di training e limiti nella sezione
+<a href="https://github.com/Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc#risultati">Risultati</a> del README.</p>
+
 <h2>Approfondimenti</h2>
 <ul>
  <li><a href="report/index.html">Report completo</a>: tabelle delle misure, differenze di processo, condizioni dell'esperimento.</li>
@@ -65,6 +76,6 @@ distribuiti come file.</p>
  <li><a href="https://github.com/Mr-Flower/studio-gaussian-splatting-laboratorio-ictbc">Codice, protocollo e risultati</a> (README con abstract e risultati dettagliati).</li>
 </ul>
 
-<footer>Generato il 22/10/2026 con Studio Gaussian Splatting 0.4.1 (progetto «foto»).
+<footer>Generato il 23/10/2026 con Studio Gaussian Splatting 0.5.0 (progetto «foto»).
 Codice con licenza Apache 2.0; il codice 3D Gaussian Splatting di Inria ha una licenza propria, solo per ricerca non commerciale.</footer>
 </main></body></html>
