@@ -1,5 +1,51 @@
 # Registro delle modifiche
 
+## 0.6.0 — 2026-11-04 (terzo piano dell'articolo, PIANO_ARTICOLO_3.md: fasi 13, 12 e 15)
+
+### Cambiamenti che incidono sui risultati
+
+- **Scala verificata in sito** (fase 13, `python -m app.scala --verifica`). La misura di
+  riferimento è il basamento di un pilone, 4,33 × 6,013 m, preso con il distanziometro laser sul
+  dado. Nella nuvola densa raddrizzata si isolano i due piloni nella fascia tra 1,0 e 2,2 m sopra il
+  suolo e si calcola il rettangolo di area minima di ciascuno. La scala verificata è 2,747 m per
+  unità (2,741 e 2,753 dai due piloni; 2,668–2,799 dai singoli lati). Le stime dal GPS si scostano
+  di +1,5% (orizzontale, 2,789) e −9,4% (tre assi, 2,490). Il rapporto tra i lati nella nuvola
+  (1,32–1,33) resta il 4% sotto quello in sito; l'utente l'ha accettato, perché le misure sono
+  prese sul dado. Nella fascia 0,2–1,0 m, sulla zoccolatura, lo scarto è del 7–8%. Tutto è in
+  `scala.json` sotto `verifica`, con la fonte. `use` = `scale_verified` mette la scala in uso in
+  `paper.py` e `geometry.py`. L'altezza misurata è 15,69 m (15,60 m secondo italia.it).
+- **Punti di superficie con la stessa procedura per tutti** (fase 12, nuovo `app/surface.py`):
+  - 97 viste di training (una su otto) rese a 1320 px con le camere di ciascun metodo;
+  - per pixel profondità attesa e opacità accumulata, pixel con opacità > 0,5;
+  - un milione di punti con seme 0, senza filtro; a parte la variante con lo stesso filtro
+    statistico per tutti;
+  - per il codice Inria la profondità si ricava con `override_color`, indipendentemente dalla
+    versione.
+
+  `tab8_geometria` riporta superficie, superficie filtrata e centri delle gaussiane (analisi
+  secondaria). Nuova figura `fig6c_profilo`, una sezione di 5 cm attraverso il fornice. Accuratezza
+  mediana: nerfacto 4,5 cm, splatfacto 5,0, nerfacto-big 8,3, Inria 12,0, splatfacto-big 21,0
+  (nella 0.5.0: NeRF 1,9–2,2 cm con `ns-export`, 3DGS 3,1–3,3 cm con i centri). La ρ di RQ4 resta
+  +0,80 (p = 0,10), indicata come solo descrittiva.
+- Controllo della procedura per i NeRF: i punti di `ns-export pointcloud`, senza filtro e con la
+  stessa profondità attesa, distano dalla superficie completa 1,1 cm (nerfacto) e 1,7 cm
+  (nerfacto-big) in mediana. Il piano chiedeva meno di 1 cm; l'utente ha accettato lo scarto, che
+  viene dalle viste diverse (tutte le foto di training a piena risoluzione contro 97 viste a
+  1320 px).
+- README (fase 15): abstract, risultati e conclusioni riscritti per la geometria, con la condizione
+  «30.000 iterazioni e parametri di densificazione predefiniti» sulla risoluzione piena. L'ora di
+  scatto non spiega la correlazione con l'esposizione: ρ(|ΔEV|, ora) = 0,10 e ρ(PSNR corretto,
+  ora) da −0,03 a −0,13, non significative; i valori sono in `numeri.json`. Nei limiti la
+  procedura unica sostituisce il confronto non alla pari; la sezione Scala descrive la verifica.
+
+### Novità
+
+- `fig5c_esposizione` con le etichette in inglese.
+- Sito: didascalie della geometria aggiornate e figura `fig6c_profilo`.
+- Test senza scheda grafica: ritroiezione su una camera sintetica nelle due convenzioni di
+  profondità, filtro statistico con outlier noti, rettangolo di area minima e separazione dei
+  piloni.
+
 ## 0.5.0 — 2026-10-23 (secondo piano dell'articolo, PIANO_ARTICOLO_2.md)
 
 ### Cambiamenti che incidono sui risultati

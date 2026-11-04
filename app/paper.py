@@ -412,6 +412,32 @@ def exposure_numbers(results: List[MethodResult], distance: Dict[str, float], nu
         numbers["esposizione.viste_confrontate_inria_splatfacto"] = len(names)
 
 
+def exposure_time_numbers(results: List[MethodResult], distance: Dict[str, float], times: Dict[str, datetime],
+                          numbers: dict) -> None:
+    """ρ di Spearman tra ora di scatto e PSNR corretto (per metodo) e tra ora e |ΔEV| delle viste di test.
+
+    Servono a leggere la correlazione negativa che resta dopo la correzione del colore: se esposizione e
+    PSNR corretto seguono entrambi l'ora, la causa piu' probabile e' la luce (ombre, posizione del sole),
+    che nessuna correzione globale compensa.
+    """
+    from scipy.stats import spearmanr
+
+    def hour(name: str) -> float:
+        return times[name].hour + times[name].minute / 60 + times[name].second / 3600
+
+    names = [n for n in distance if n in times]
+    if len(names) > 2:
+        rho, p_value = spearmanr([hour(n) for n in names], [abs(distance[n]) for n in names])
+        numbers["esposizione.rho_delta_ev_ora"], numbers["esposizione.p_delta_ev_ora"] = float(rho), float(p_value)
+        numbers["esposizione.viste_con_ora"] = len(names)
+    for r in results:
+        names = [n for n in r.per_view if n in times and "psnr_cc" in r.per_view[n]]
+        if len(names) > 2:
+            rho, p_value = spearmanr([hour(n) for n in names], [r.per_view[n]["psnr_cc"] for n in names])
+            numbers[f"{r.key}.esposizione.rho_psnr_cc_ora"] = float(rho)
+            numbers[f"{r.key}.esposizione.p_psnr_cc_ora"] = float(p_value)
+
+
 def figure_exposure(results: List[MethodResult], distance: Dict[str, float], out: Path) -> None:
     import matplotlib
     matplotlib.use("Agg")
@@ -427,7 +453,7 @@ def figure_exposure(results: List[MethodResult], distance: Dict[str, float], out
     for ax, r in zip(axes[0], shown):
         names = [n for n in r.per_view if n in distance]
         x = np.array([abs(distance[n]) for n in names])
-        for metric, color, label in (("psnr", MUTED, "grezzo"), ("psnr_cc", FAMILY_COLOR[r.method.family], "corretto")):
+        for metric, color, label in (("psnr", MUTED, "raw"), ("psnr_cc", FAMILY_COLOR[r.method.family], "colour-corrected")):
             if not all(metric in r.per_view[n] for n in names):
                 continue
             y = np.array([r.per_view[n][metric] for n in names])
@@ -438,13 +464,13 @@ def figure_exposure(results: List[MethodResult], distance: Dict[str, float], out
                 xs = np.linspace(x.min(), x.max(), 10)
                 ax.plot(xs, slope * xs + intercept, color=color, linewidth=1.6)
         ax.set_title(r.method.short, fontsize=10)
-        ax.set_xlabel("|ΔEV| dalla mediana del training")
+        ax.set_xlabel("|ΔEV| from the training median")
         ax.grid(True, color=GRID, linewidth=0.8)
         ax.set_axisbelow(True)
         ax.tick_params(length=0)
         ax.legend(frameon=False, fontsize=8, loc="lower left")
-    axes[0][0].set_ylabel("PSNR per vista (dB)")
-    fig.suptitle("PSNR rispetto alla distanza di esposizione della vista: grezzo e dopo la correzione del colore",
+    axes[0][0].set_ylabel("PSNR per view (dB)")
+    fig.suptitle("PSNR against the exposure distance of each test view: raw and after colour correction",
                  x=0.01, ha="left", fontsize=11, fontweight="bold")
     _save(fig, out, "fig5c_esposizione")
     plt.close(fig)
@@ -625,7 +651,38 @@ def metres_per_unit(project: str) -> Optional[float]:
 
     data = scala.load(project) or {}
     key = data.get("use")
-    return float(data[key]) if key in ("scale", "scale_horizontal") else None
+    return float(data[key]) if key in scala.SCALE_KEYS and data.get(key) else None
+
+
+SCALE_SOURCE = {"scale": "scala dal GPS del drone", "scale_horizontal": "scala dal GPS del drone",
+                "scale_verified": "scala verificata in sito"}
+
+
+def scale_numbers(project: str, numbers: dict) -> None:
+    """Scala in uso, stime dal GPS e verifica con il basamento dei piloni (app/scala.py) in numeri.json."""
+    from . import scala
+
+    data = scala.load(project) or {}
+    numbers.update({"scala.metri_per_unita": metres_per_unit(project), "scala.stima": data.get("use"),
+                    "scala.gps_tre_assi": data.get("scale"), "scala.gps_orizzontale": data.get("scale_horizontal"),
+                    "scala.gps_orizzontale_ic95": data.get("scale_horizontal_ci95"),
+                    "scala.residuo_orizzontale_m": data.get("horizontal_residual_median_m"),
+                    "scala.errore_medio_3d_m": data.get("error_mean_m")})
+    check = data.get("verifica")
+    if not check:
+        return
+    numbers.update({"scala.verifica.fonte": check["fonte"], "scala.verifica.lati_in_sito_m": check["lati_in_sito_m"],
+                    "scala.verifica.fascia_m": check["fascia_sopra_il_suolo_m"],
+                    "scala.verifica.rapporto_atteso": check["rapporto_atteso"],
+                    "scala.verifica.scala": check["scala"], "scala.verifica.scala_min_max_lati": check["scala_min_max_lati"],
+                    "scala.verifica.rapporto_accettato": check.get("rapporto_accettato"),
+                    "scala.verifica.altezza_m": check["altezza_m"], "scala.verifica.altezza_confronto_m": check["altezza_confronto_m"],
+                    "scala.verifica.altezza_fonte": check["altezza_fonte"]})
+    for i, pier in enumerate(check["piloni"], 1):
+        for name in ("lati_unita", "lati_m", "rapporto", "scarto_rapporto", "scala"):
+            numbers[f"scala.verifica.pilone{i}.{name}"] = pier[name]
+    for key, gap in check["scarto_stime_gps"].items():
+        numbers[f"scala.verifica.scarto_{key}"] = gap
 
 
 def _save(fig, out: Path, name: str) -> None:
@@ -636,7 +693,7 @@ def _save(fig, out: Path, name: str) -> None:
 CAMERA_COLOR = {"jpg": "#2a78d6", "dng": "#eb6834"}  # palette categorica di riferimento, ordine fisso
 
 
-def figure_cameras(scene: Path, out: Path, metres: Optional[float] = None) -> None:
+def figure_cameras(scene: Path, out: Path, metres: Optional[float] = None, source: str = "") -> None:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -663,7 +720,7 @@ def figure_cameras(scene: Path, out: Path, metres: Optional[float] = None) -> No
                 ax.scatter(xs, ys, s=10, color=color, alpha=0.55, linewidth=0, label=label, zorder=2)
     ax.set_aspect("equal")
     ax.set_title("Centri delle camere, visti dall'alto")
-    unit = "metri (scala dal GPS del drone)" if metres else "unità dell'allineamento (scala arbitraria)"
+    unit = f"metri ({source})" if metres and source else ("metri" if metres else "unità dell'allineamento (scala arbitraria)")
     ax.set_xlabel(unit, color=INK_SECONDARY)
     ax.tick_params(length=0)
     for side in ax.spines.values():
@@ -756,22 +813,17 @@ def build(project: str, out: Path, discarded_file: Optional[Path] = None, figure
     numbers["tab7.disponibile"] = table_nerf_options(project, results, out, numbers)
     distance = exposure_distance(scene, project)
     exposure_numbers(results, distance, numbers)
+    times = taken_times(scene)
+    exposure_time_numbers(results, distance, times, numbers)
     numbers["mvs.disponibile"] = table_photogrammetry(scene, out, numbers)
     metres = metres_per_unit(project)
-    if metres:
-        from . import scala
-        data = scala.load(project)
-        numbers.update({"scala.metri_per_unita": metres, "scala.stima": data["use"],
-                        "scala.ic95": data.get("scale_horizontal_ci95") if data["use"] == "scale_horizontal" else None,
-                        "scala.residuo_orizzontale_m": data.get("horizontal_residual_median_m"),
-                        "scala.errore_medio_3d_m": data.get("error_mean_m")})
+    scale_numbers(project, numbers)
     from . import geometry
     quality = {r.key: statistics.mean(v["psnr_cc"] for v in r.per_view.values())
                for r in results if r.per_view and all("psnr_cc" in v for v in r.per_view.values())}
     numbers["geometria.disponibile"] = geometry.build(project, out, numbers, metres, quality)
     if figures:
-        figure_cameras(scene, out, metres)
-        times = taken_times(scene)
+        figure_cameras(scene, out, metres, SCALE_SOURCE.get(numbers["scala.stima"], ""))
         numbers["ora.prima"] = min(times.values()).strftime("%H:%M") if times else None
         numbers["ora.ultima"] = max(times.values()).strftime("%H:%M") if times else None
         figure_time(results, times, out)

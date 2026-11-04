@@ -1,9 +1,11 @@
-"""Confronto geometrico tra i modelli e la nuvola densa della fotogrammetria (fase 10 del piano).
+"""Confronto geometrico tra i modelli e la nuvola densa della fotogrammetria (fasi 10 e 12 del piano).
 
 La nuvola densa di COLMAP (colmap/dense/fused.ply) e' il RIFERIMENTO, non la verita': anche lei ha
-errori. Si confrontano con essa:
-  - i centri delle gaussiane con opacita' > MIN_OPACITY di ogni modello 3DGS;
-  - la nuvola di punti esportata da ogni NeRF (point_cloud.ply).
+errori. Si confrontano con essa, per ogni metodo:
+  - i punti di superficie (app/surface.py), ricavati allo stesso modo per tutti: e' il confronto
+    principale;
+  - gli stessi punti dopo il filtro statistico uguale per tutti ("filtrata");
+  - per il 3DGS, i centri delle gaussiane con opacita' > MIN_OPACITY ("centri"), analisi secondaria.
 Tutto e' riportato nel sistema di COLMAP (clean.to_colmap) e ritagliato a un riquadro attorno ai
 punti della nuvola sparsa, ridotto ai percentili 2-98 su ogni asse nel sistema raddrizzato del
 volo (verticale delle camere), cosi' si escludono cielo e intorno lontano.
@@ -12,8 +14,9 @@ Per ogni metodo, nei due versi:
   - accuratezza: distanza da ogni punto del metodo al punto piu' vicino della nuvola densa;
   - completezza: distanza da ogni punto della nuvola densa al punto piu' vicino del metodo;
 con mediana, 90o percentile e frazione entro 5, 10 e 20 cm. Le distanze sono in metri con la
-scala scelta in scala.json (app/scala.py); senza scala restano in unita' dell'allineamento.
-Ogni nuvola e' sottocampionata a SAMPLE punti (seme fisso).
+scala in uso in scala.json (app/scala.py, letta da paper.metres_per_unit): la scala verificata con
+il basamento dei piloni misurato in sito, se c'e'. Senza scala restano in unita' dell'allineamento.
+La nuvola densa e' sottocampionata a SAMPLE punti, quelle dei metodi a METHOD_SAMPLE (seme fisso).
 """
 from __future__ import annotations
 
@@ -28,6 +31,9 @@ from . import clean, colmap_model, config, pipeline, runs
 
 MIN_OPACITY = 0.5
 SAMPLE = 2_000_000
+METHOD_SAMPLE = 1_000_000  # come i punti di superficie (surface.SAMPLE)
+VARIANTS = {"superficie": "superficie", "filtrata": "superficie filtrata", "centri": "centri delle gaussiane"}
+SECTION_M = 0.05  # spessore della sezione verticale della figura fig6c
 THRESHOLDS_M = (0.05, 0.10, 0.20)
 SEED = 0
 
@@ -93,18 +99,30 @@ def distance_stats(distances: np.ndarray, metres: float) -> Dict[str, float]:
 
 
 def method_points(run: runs.Run, scene: Path) -> Optional[np.ndarray]:
-    """Nuvola di un run nel sistema di COLMAP: centri delle gaussiane opache o punti esportati dal NeRF."""
+    """Centri delle gaussiane opache di un run 3DGS nel sistema di COLMAP; None per i NeRF."""
     export = run.export_file
-    if export is None:
+    if export is None or config.METHODS[run.method].family != "gaussian":
         return None
     xyz, opacity = read_xyz(export)
-    if opacity is not None:
-        xyz = xyz[opacity > MIN_OPACITY]
-    return clean.to_colmap(xyz, run, scene)
+    return clean.to_colmap(xyz[opacity > MIN_OPACITY], run, scene)
+
+
+def variant_points(run: runs.Run, scene: Path, variant: str) -> Optional[np.ndarray]:
+    """Nuvola di un run per una variante del confronto, nel sistema di COLMAP."""
+    from . import surface
+
+    if variant == "centri":
+        return method_points(run, scene)
+    path = surface.surface_file(run, filtered=variant == "filtrata")
+    return read_xyz(path)[0] if path else None
 
 
 def compare(project: str, metres: Optional[float]) -> Dict:
-    """Accuratezza e completezza di ogni metodo del confronto principale rispetto alla nuvola densa."""
+    """Accuratezza e completezza di ogni metodo e variante rispetto alla nuvola densa.
+
+    I valori principali di ogni metodo sono quelli dei punti di superficie; le altre varianti stanno in
+    results[metodo]["varianti"].
+    """
     from scipy.spatial import cKDTree
 
     scene = config.WORK / "data" / project
@@ -113,23 +131,29 @@ def compare(project: str, metres: Optional[float]) -> Dict:
         raise FileNotFoundError("Manca la nuvola densa: eseguire la fotogrammetria (passo mesh).")
     rotation = upright_frame(scene)
     box = region(scene, rotation)
-    dense = subsample(inside(read_xyz(dense_file)[0], rotation, box))
+    dense_all = inside(read_xyz(dense_file)[0], rotation, box)
+    dense = subsample(dense_all)
     dense_tree = cKDTree(dense)
     scale = metres or 1.0
-    results: Dict[str, Dict] = {"_riferimento": {"punti": int(len(dense)), "metri": bool(metres)}}
+    results: Dict[str, Dict] = {"_riferimento": {"punti": int(len(dense)), "metri": bool(metres),
+                                                 "_dense": dense_all @ rotation.T, "_rotation": rotation}}
     groups = runs.condition_groups(runs.list_runs(project))
     for key, method_runs in (groups[0].items() if groups else []):
-        points = method_points(method_runs[0], scene)
-        if points is None:
-            continue
-        points = subsample(inside(points, rotation, box))
-        if len(points) == 0:
-            continue
-        accuracy = dense_tree.query(points, k=1, workers=-1)[0]
-        completeness = cKDTree(points).query(dense, k=1, workers=-1)[0]
-        results[key] = {"punti": int(len(points)), "accuratezza": distance_stats(accuracy, scale),
-                        "completezza": distance_stats(completeness, scale),
-                        "_accuracy": accuracy * scale, "_points": points @ rotation.T}
+        variants = {}
+        for variant in VARIANTS:
+            points = variant_points(method_runs[0], scene, variant)
+            if points is None:
+                continue
+            points = subsample(inside(points, rotation, box), METHOD_SAMPLE)
+            if len(points) == 0:
+                continue
+            accuracy = dense_tree.query(points, k=1, workers=-1)[0]
+            completeness = cKDTree(points).query(dense, k=1, workers=-1)[0]
+            variants[variant] = {"punti": int(len(points)), "accuratezza": distance_stats(accuracy, scale),
+                                 "completezza": distance_stats(completeness, scale),
+                                 "_accuracy": accuracy * scale, "_points": points @ rotation.T}
+        if "superficie" in variants:
+            results[key] = {**variants["superficie"], "varianti": variants}
     return results
 
 
@@ -166,7 +190,7 @@ def figures(results: Dict, out: Path, unit: str) -> None:
                 linestyle="-" if "big" not in key and key != config.INRIA else ("--" if "big" in key else ":"))
     ax.set_xlabel(f"distanza dalla nuvola densa ({unit})")
     ax.set_ylabel("densità")
-    ax.set_title("Accuratezza: distanza di ogni punto del modello dalla nuvola densa")
+    ax.set_title("Accuratezza: distanza di ogni punto di superficie dalla nuvola densa")
     ax.grid(True, color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
     ax.legend(frameon=False, fontsize=9)
@@ -185,8 +209,72 @@ def figures(results: Dict, out: Path, unit: str) -> None:
         ax.set_xticks([])
         ax.set_yticks([])
     fig.colorbar(image, ax=axes[0].tolist(), shrink=0.8, label=f"distanza ({unit})")
-    fig.suptitle("Distanza dalla nuvola densa, vista dall'alto", x=0.01, ha="left", fontsize=11, fontweight="bold")
+    fig.suptitle("Distanza dei punti di superficie dalla nuvola densa, vista dall'alto", x=0.01, ha="left",
+                 fontsize=11, fontweight="bold")
     _save(fig, out, "fig6b_distanze_pianta")
+    plt.close(fig)
+
+
+def section(results: Dict, project: str, metres: float) -> Optional[Dict]:
+    """Sezione verticale sottile attraverso il fornice, in metri: nuvola densa e punti di superficie per metodo.
+
+    Il piano passa per il centro tra i due piloni ed e' parallelo alla facciata (perpendicolare al lato
+    lungo dei piloni, da scala.json); x corre lungo la facciata, z e' la quota sul suolo.
+    """
+    from . import scala
+
+    check = (scala.load(project) or {}).get("verifica")
+    if not check or len(check.get("piloni", [])) != 2 or "centro_unita" not in check["piloni"][0]:
+        return None
+    centre = np.mean([p["centro_unita"] for p in check["piloni"]], axis=0)
+    depth_angle = np.radians(np.mean([p["orientamento_gradi"] for p in check["piloni"]]))
+    depth_axis = np.array([np.cos(depth_angle), np.sin(depth_angle)])
+    facade_axis = np.array([-depth_axis[1], depth_axis[0]])
+    half = SECTION_M / 2 / metres
+    ground = check["suolo_unita"]
+
+    def cut(points: np.ndarray) -> np.ndarray:
+        flat = points[:, :2] - centre
+        keep = np.abs(flat @ depth_axis) <= half
+        return np.column_stack([flat[keep] @ facade_axis, points[keep, 2] - ground]) * metres
+
+    return {"_dense": cut(results["_riferimento"]["_dense"]),
+            **{key: cut(r["_points"]) for key, r in results.items() if not key.startswith("_")}}
+
+
+def figure_section(cuts: Dict, out: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from .report import FAMILY_COLOR, _style
+    from .paper import _save
+
+    _style()
+    keys = [k for k in cuts if not k.startswith("_")]
+    dense = cuts["_dense"]
+    span = np.percentile(np.abs(dense[:, 0]), 99) * 1.05
+    shown = (np.abs(dense[:, 0]) <= span) & (dense[:, 1] > -1)
+    top = np.percentile(dense[shown, 1], 99.9) + 0.5
+    fig, axes = plt.subplots(1, len(keys), figsize=(3.3 * len(keys), 4.4), sharey=True, constrained_layout=True,
+                             squeeze=False)
+    for ax, key in zip(axes[0], keys):
+        points = cuts[key]
+        visible = (np.abs(points[:, 0]) <= span) & (points[:, 1] > -1) & (points[:, 1] < top)
+        ax.scatter(dense[shown, 0], dense[shown, 1], s=0.4, color="#b9b8b3", linewidth=0, label="nuvola densa")
+        ax.scatter(points[visible, 0], points[visible, 1], s=1.2, linewidth=0,
+                   color=FAMILY_COLOR[config.METHODS[key].family], label="superficie del metodo")
+        ax.set_title(config.METHODS[key].short, fontsize=10)
+        ax.set_aspect("equal")
+        ax.set_xlim(-span, span)
+        ax.set_ylim(-1, top)
+        ax.set_xlabel("lungo la facciata (m)")
+        ax.tick_params(length=0)
+    axes[0][0].set_ylabel("quota sul suolo (m)")
+    axes[0][0].legend(frameon=False, fontsize=8, loc="upper left", markerscale=6)
+    fig.suptitle(f"Sezione verticale attraverso il fornice, spessore {SECTION_M * 100:.0f} cm", x=0.01, ha="left",
+                 fontsize=11, fontweight="bold")
+    _save(fig, out, "fig6c_profilo")
     plt.close(fig)
 
 
@@ -197,32 +285,71 @@ def table(results: Dict, out: Path, numbers: dict, unit: str) -> None:
     for key, r in results.items():
         if key.startswith("_"):
             continue
-        a, c = r["accuratezza"], r["completezza"]
-        rows.append([config.METHODS[key].label, r["punti"], _f(a["median"], 3), _f(a["p90"], 3),
-                     *[f"{a[f'within_{int(t * 100)}cm']:.1%}" for t in THRESHOLDS_M],
-                     _f(c["median"], 3), _f(c["p90"], 3), f"{c['within_10cm']:.1%}"])
-        for side, values in (("accuratezza", a), ("completezza", c)):
-            for name, value in values.items():
-                numbers[f"geometria.{key}.{side}.{name}"] = value
+        for variant, label in VARIANTS.items():
+            v = r["varianti"].get(variant)
+            if v is None:
+                rows.append([config.METHODS[key].label, label] + ["–"] * 9)
+                continue
+            a, c = v["accuratezza"], v["completezza"]
+            rows.append([config.METHODS[key].label, label, v["punti"], _f(a["median"], 3), _f(a["p90"], 3),
+                         *[f"{a[f'within_{int(t * 100)}cm']:.1%}" for t in THRESHOLDS_M],
+                         _f(c["median"], 3), _f(c["p90"], 3), f"{c['within_10cm']:.1%}"])
+            prefix = f"geometria.{key}" if variant == "superficie" else f"geometria.{key}.{variant}"
+            numbers[f"{prefix}.punti"] = v["punti"]
+            for side, values in (("accuratezza", a), ("completezza", c)):
+                for name, value in values.items():
+                    numbers[f"{prefix}.{side}.{name}"] = value
     numbers["geometria.punti_riferimento"] = results["_riferimento"]["punti"]
     numbers["geometria.unita"] = unit
     write_table(out, "tab8_geometria",
-                ["Metodo", "Punti", f"Accuratezza mediana ({unit})", f"Accuratezza 90° perc. ({unit})",
+                ["Metodo", "Nuvola", "Punti", f"Accuratezza mediana ({unit})", f"Accuratezza 90° perc. ({unit})",
                  "Entro 5 cm", "Entro 10 cm", "Entro 20 cm", f"Completezza mediana ({unit})",
                  f"Completezza 90° perc. ({unit})", "Completezza entro 10 cm"], rows,
-                "Distanze rispetto alla nuvola densa della fotogrammetria (riferimento, non verità)")
+                "Distanze rispetto alla nuvola densa della fotogrammetria (riferimento, non verità); "
+                "«superficie»: punti di superficie con la stessa procedura per tutti i metodi (confronto principale)")
+
+
+def surface_numbers(project: str, numbers: dict) -> None:
+    """Procedura dei punti di superficie (superficie.json) e controllo con ns-export per i NeRF."""
+    from . import surface
+
+    groups = runs.condition_groups(runs.list_runs(project))
+    for key, method_runs in (groups[0].items() if groups else []):
+        run = method_runs[0]
+        info = runs.read_json(run.export_dir / surface.INFO_FILE)
+        if info:
+            numbers.update({f"geometria.{key}.superficie.viste": len(info["viste"]),
+                            f"geometria.{key}.superficie.pixel_validi": info["pixel_validi"] / info["pixel"],
+                            f"geometria.{key}.superficie.punti_nel_riquadro": info["punti_nel_riquadro"],
+                            f"geometria.{key}.superficie.convenzione": info["convenzione_profondita"],
+                            f"geometria.{key}.superficie.filtro_tenuti": info["filtro"]["punti_tenuti"]})
+            numbers.update({"geometria.superficie.lato_px": info["lato_px"],
+                            "geometria.superficie.vista_ogni": surface.VIEW_EVERY,
+                            "geometria.superficie.opacita_minima": info["opacita_minima"],
+                            "geometria.superficie.filtro_vicini": info["filtro"]["vicini"],
+                            "geometria.superficie.filtro_std_ratio": info["filtro"]["std_ratio"]})
+        check = runs.read_json(run.export_dir / surface.CHECK_FILE)
+        for name, value in check.items():
+            if name.startswith(("mediana", "p90", "punti")):
+                numbers[f"geometria.{key}.controllo_ns_export.{name}"] = value
 
 
 def build(project: str, out: Path, numbers: dict, metres: Optional[float], quality: Dict[str, float]) -> bool:
-    """Tabella 8, figure 6 e numeri della fase 10; False se manca la nuvola densa."""
+    """Tabella 8, figure 6 e numeri delle fasi 10 e 12; False se manca la nuvola densa."""
     try:
         results = compare(project, metres)
     except FileNotFoundError:
         return False
     unit = "m" if metres else "unità"
     table(results, out, numbers, unit)
+    surface_numbers(project, numbers)
     figures(results, out, unit)
+    cuts = section(results, project, metres) if metres else None
+    if cuts:
+        figure_section(cuts, out)
     rq4 = spearman_quality_geometry(results, quality)
     if rq4:
         numbers["geometria.rq4_spearman_rho"], numbers["geometria.rq4_spearman_p"] = rq4
+        numbers["geometria.rq4_nota"] = (f"punti di superficie senza filtro; con {len(quality)} metodi il risultato "
+                                         "è solo descrittivo")
     return True

@@ -32,9 +32,11 @@ SH_C0 = 0.28209479177387814
 PAPER_FIGURES = {
     "fig5c_esposizione": "Esposizione: le viste di test con un'esposizione lontana da quella tipica del rilievo hanno "
                          "PSNR più basso per tutti i metodi, anche dopo la correzione del colore.",
-    "fig6_distanze": "Geometria: distanza di ogni punto dei modelli dalla nuvola densa della fotogrammetria "
-                     "(riferimento, non verità).",
+    "fig6_distanze": "Geometria: distanza dei punti di superficie di ogni metodo, ricavati allo stesso modo per "
+                     "tutti, dalla nuvola densa della fotogrammetria (riferimento, non verità).",
     "fig6b_distanze_pianta": "La stessa distanza vista dall'alto: i colori chiari sono i punti lontani dalla nuvola densa.",
+    "fig6c_profilo": "Sezione verticale di 5 cm attraverso il fornice: in grigio la nuvola densa, in colore la "
+                     "superficie di ciascun metodo, in metri.",
 }
 
 

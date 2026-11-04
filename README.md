@@ -37,21 +37,24 @@ colore per vista), SSIM tra 0,614 e 0,638 e LPIPS tra 0,668 e 0,701; nerfacto-bi
 0,578 e 0,724; nerfacto 17,92 dB (18,89), 0,562 e 0,756. Nei confronti appaiati vista per vista il
 3D Gaussian Splatting supera i NeRF in SSIM e LPIPS in tutte le coppie; l'implementazione originale
 e gsplat non differiscono in PSNR, mentre gsplat ha SSIM e LPIPS migliori e un training 2,7 volte
-più breve. Allenare a risoluzione piena non conviene: misurati tutti a 1320 px, i modelli allenati
+più breve. Con 30.000 iterazioni e i parametri di densificazione predefiniti, allenare a
+risoluzione piena non conviene: misurati tutti a 1320 px, i modelli allenati
 a 1320 px superano quelli allenati a 5280 px di 0,9–1,1 dB (mediana per vista), con un training da
 10 a 14 volte più breve. Le differenze di esposizione tra le foto spiegano parte dell'errore (ρ di
 Spearman tra PSNR e scarto di esposizione da −0,25 a −0,40, anche dopo la correzione del colore).
 In nerfacto la correzione delle pose durante il training costa 2,5 dB, mentre il vettore di
-aspetto per foto ha un effetto trascurabile. Rispetto alla nuvola densa della fotogrammetria i NeRF
-hanno una distanza mediana di 1,9–2,2 cm e il 92% dei punti entro 10 cm, il 3D Gaussian Splatting
-3,1–3,3 cm e il 67–74%; il 3D Gaussian Splatting copre però meglio la superficie (fino al 92,6% della
-nuvola densa entro 10 cm). La variabilità tra esecuzioni ripetute è di 0,04–0,06 dB. Dettagli nella
+aspetto per foto ha un effetto trascurabile. Con punti di superficie ricavati allo stesso modo per
+tutti i metodi e una scala verificata sul basamento di un pilone misurato in sito, la distanza
+mediana dalla nuvola densa della fotogrammetria va da 4,5 cm (nerfacto) e 5,0 cm (gsplat) a 21,0 cm
+(gsplat big): le due famiglie si sovrappongono e le varianti più grandi non sono più precise. La
+variabilità tra esecuzioni ripetute è di 0,04–0,06 dB. Dettagli nella
 sezione [Risultati](#risultati).
 
 **Conclusioni.** A parità di condizioni, sul caso di studio il 3D Gaussian Splatting produce
 immagini più fedeli dei NeRF configurati e un rendering in tempo reale (12–23 fotogrammi al
-secondo a 20 megapixel, contro 0,02–0,05), ma non una geometria più precisa: la qualità delle
-immagini non predice l'accuratezza geometrica. La scelta dell'implementazione conta meno della
+secondo a 20 megapixel, contro 0,02–0,05), ma non una geometria più precisa. Sui cinque metodi, e
+rispetto a una nuvola densa calcolata a 1600 px che è un riferimento e non una verità, la qualità
+delle immagini non predice l'accuratezza geometrica: è un'osservazione descrittiva. La scelta dell'implementazione conta meno della
 famiglia di metodi, mentre impostazioni predefinite, risoluzione di training e di valutazione ed
 esposizione delle foto spostano le metriche più delle differenze tra implementazioni: un protocollo
 comune è indispensabile per confrontare i metodi. Le conclusioni non cambiano con la correzione del
@@ -84,18 +87,21 @@ configurations reach PSNR 19.25–19.66 dB (20.14–20.42 dB after a per-view af
 SSIM 0.614–0.638 and LPIPS 0.668–0.701; nerfacto-big 18.96 dB (19.90), 0.578 and 0.724; nerfacto
 17.92 dB (18.89), 0.562 and 0.756. In view-by-view paired comparisons Gaussian Splatting outperforms
 NeRF in SSIM and LPIPS for every pair; the original implementation and gsplat do not differ in PSNR,
-while gsplat has better SSIM and LPIPS and trains 2.7 times faster. Training at full resolution does
-not pay off: evaluated at 1320 px, models trained at 1320 px beat those trained at 5280 px by
+while gsplat has better SSIM and LPIPS and trains 2.7 times faster. With 30,000 iterations and the
+default densification settings, training at full resolution does not pay off: evaluated at 1320 px, models trained at 1320 px beat those trained at 5280 px by
 0.9–1.1 dB (median per view) and train 10 to 14 times faster. Exposure differences between photos
 explain part of the error (Spearman ρ between PSNR and exposure offset from −0.25 to −0.40, also
 after colour correction). In nerfacto, pose refinement during training costs 2.5 dB, while the
-per-image appearance embedding has a negligible effect. Against the photogrammetric dense cloud,
-NeRF points have a median distance of 1.9–2.2 cm with 92% within 10 cm, Gaussian Splatting
-3.1–3.3 cm and 67–74%; Gaussian Splatting, however, covers the surface better (up to 92.6% of the
-dense cloud within 10 cm). Run-to-run variability is 0.04–0.06 dB. *Conclusions.* Under identical
+per-image appearance embedding has a negligible effect. With surface points extracted in the same
+way for every method and a scale checked against the base of one pier measured on site, the median
+distance from the photogrammetric dense cloud ranges from 4.5 cm (nerfacto) and 5.0 cm (gsplat) to
+21.0 cm (gsplat big): the two families overlap and the larger variants are not more accurate.
+Run-to-run variability is 0.04–0.06 dB. *Conclusions.* Under identical
 conditions Gaussian Splatting yields more faithful images than the NeRF configurations and
 real-time rendering (12–23 frames per second at 20 megapixels, versus 0.02–0.05), but not a more
-accurate geometry: image quality does not predict geometric accuracy. The choice of implementation
+accurate geometry. Across the five methods, and against a dense cloud computed at 1600 px that is a
+reference rather than ground truth, image quality does not predict geometric accuracy; this is a
+descriptive observation. The choice of implementation
 matters less than the method family, whereas default settings, training and evaluation resolution
 and photo exposure shift the metrics more than implementation differences do, which makes a common
 protocol essential. The conclusions hold with colour correction, which raises all metrics by
@@ -167,10 +173,15 @@ Ogni metodo è usato con i parametri predefiniti della sua implementazione; il n
 - PSNR, SSIM e LPIPS misurano la fedeltà delle immagini, non l'accuratezza geometrica. La
   fotogrammetria non produce immagini da nuovi punti di vista e non ha quindi queste metriche. Il
   confronto geometrico usa la sua nuvola densa come riferimento, non come verità: ha errori propri,
-  e sul caso di studio è calcolata a 1600 px per limiti di disco (circa 155 GB a 2640 px). Inoltre
-  il confronto non è del tutto alla pari: i centri delle gaussiane stanno dentro o attorno alla
-  superficie, mentre i punti esportati dai NeRF stanno sulla superficie stimata. Non c'è ancora un
-  riferimento metrico indipendente (misure a terra o un rilievo laser).
+  e sul caso di studio è calcolata a 1600 px per limiti di disco (circa 155 GB a 2640 px). I punti
+  dei metodi si ricavano con una procedura unica (`app/surface.py`): profondità attesa e opacità
+  accumulata rese da una vista di training su otto a 1320 px, pixel con opacità > 0,5, un milione di
+  punti con seme fisso, nessun filtro. Con meno viste della procedura di nerfstudio, che pesca da
+  tutte le foto di training, alcune zone restano coperte meno: per nerfacto i punti di `ns-export`
+  distano dalla superficie 1,1 cm in mediana (1,7 cm per nerfacto-big). Nei dintorni la nuvola densa
+  ha pochi punti, e lì le distanze sono grandi per tutti i metodi. Non c'è un rilievo indipendente
+  della forma (laser o punti di controllo); la scala è verificata con una sola misura in sito, il
+  basamento di un pilone (vedi [Scala](#scala)).
 - Le metriche comprendono tutta l'immagine, cielo e dintorni inclusi: non si usa una maschera
   dell'arco, per cui le differenze riguardano la scena intera e non solo il monumento.
 - L'immagine vera con cui si confronta ogni vista è preparata dal programma che ha allenato il
@@ -271,6 +282,13 @@ viste più lontane dall'esposizione tipica hanno PSNR più basso per tutti i met
 colore non elimina l'effetto, che quindi non è solo un cambio globale di luminosità. Vista per vista,
 l'ordine tra il codice Inria e splatfacto si inverte in 18 viste su 111.
 
+L'interpretazione più probabile è che a esposizioni diverse corrispondano condizioni di luce
+diverse (ombre, sole diretto o riflesso a seconda della direzione di ripresa), che nessuna
+correzione globale compensa. L'ora di scatto da sola non la sostiene: la correlazione tra |ΔEV| e
+ora è ρ = 0,10 (p = 0,32, 104 viste) e quella tra PSNR corretto e ora va da −0,03 a −0,13 (p ≥ 0,17).
+Più che l'ora del giorno contano quindi, probabilmente, la direzione di ripresa rispetto al sole e le
+ombre portate, che il protocollo non misura.
+
 ### Effetto delle opzioni di nerfstudio
 
 Disegno 2×2 su nerfacto, PSNR grezzo (corretto):
@@ -287,24 +305,37 @@ trascurabile (−0,26 dB grezzi, +0,14 corretti), coerente con il limite descrit
 ### Confronto geometrico con la fotogrammetria
 
 Nuvola densa di COLMAP calcolata a 1600 px: 27,9 milioni di punti e una mesh di 12,8 milioni di
-triangoli in 8,8 ore. Distanze in metri, su 2 milioni di punti per nuvola:
+triangoli in 8,8 ore. Per ogni metodo i punti di superficie si ricavano allo stesso modo
+(`python -m app.surface`): 97 viste di training (una su otto, in ordine di nome) rese a 1320 px con
+le camere del metodo, profondità attesa e opacità accumulata per pixel, pixel con opacità > 0,5
+riportati in 3D, ritagliati al riquadro del confronto e campionati a un milione di punti (seme 0),
+senza filtro. Distanze in metri con la scala verificata, su 2 milioni di punti della nuvola densa:
 
 | Metodo | Accuratezza: mediana | 90° percentile | entro 10 cm | Completezza: mediana | entro 10 cm |
 |---|---|---|---|---|---|
-| NeRF (nerfacto-big) | 1,9 cm | 8,0 cm | 92,3% | 2,9 cm | 86,1% |
-| NeRF (nerfacto) | 2,2 cm | 8,3 cm | 92,1% | 3,4 cm | 83,7% |
-| 3DGS gsplat (splatfacto) | 3,3 cm | 28,9 cm | 73,7% | 3,8 cm | 88,9% |
-| 3DGS gsplat (splatfacto-big) | 3,1 cm | 32,9 cm | 72,8% | 3,1 cm | 92,6% |
-| 3DGS Inria | 3,3 cm | 36,7 cm | 67,2% | 4,5 cm | 85,5% |
+| NeRF (nerfacto) | 4,5 cm | 46,4 cm | 70,4% | 3,7 cm | 85,6% |
+| 3DGS gsplat (splatfacto) | 5,0 cm | 49,7 cm | 66,4% | 3,3 cm | 86,7% |
+| NeRF (nerfacto-big) | 8,3 cm | 92,9 cm | 55,6% | 5,2 cm | 76,6% |
+| 3DGS Inria | 12,0 cm | 87,8 cm | 44,3% | 4,9 cm | 80,6% |
+| 3DGS gsplat (splatfacto-big) | 21,0 cm | 130,2 cm | 29,9% | 6,6 cm | 68,7% |
 
-I punti dei NeRF sono più vicini alla superficie della fotogrammetria; il 3DGS ne copre di più
-(splatfacto-big è il più completo), ma ha una coda di gaussiane lontane dalla superficie. Tra
-qualità delle immagini (PSNR corretto) e accuratezza mediana la correlazione di rango sui cinque
-metodi è ρ = +0,80 (p = 0,10): non significativa, ma di segno opposto a quello atteso, cioè i
-metodi con le immagini migliori non hanno la geometria più precisa. Sulla sommità dell'attico il
-3DGS mette punti lontani dalla nuvola densa, dove i NeRF non ne hanno: è una zona vista poco dalla
-fotogrammetria, oppure gaussiane sopra la superficie. Si veda il limite sul confronto nella sezione
-[Limiti](#limiti).
+Le due famiglie si sovrappongono: nerfacto e splatfacto sono i più vicini alla nuvola densa, mentre
+le varianti più grandi (nerfacto-big, splatfacto-big) e il codice Inria mettono più punti lontani.
+Lo stesso filtro statistico per tutti (20 vicini, `std_ratio` 10, come `ns-export`) toglie meno
+dello 0,2% dei punti e non cambia le mediane. La sezione verticale del fornice (`fig6c_profilo`)
+mostra che sull'arco tutte le superfici seguono la nuvola densa (con più punti sparsi per i 3DGS); le distanze
+grandi vengono soprattutto dai dintorni (terreno, alberi, edifici), dove la nuvola densa ha pochi
+punti e i modelli ne mettono molti. I centri delle gaussiane opache, usati nella versione 0.5.0,
+restano in `tab8_geometria` come analisi secondaria: 3,0–3,3 cm in mediana, perché si concentrano
+sull'arco. Tra qualità delle immagini (PSNR corretto) e accuratezza mediana della superficie la
+correlazione di rango sui cinque metodi è ρ = +0,80 (p = 0,10): con cinque metodi è solo
+un'indicazione descrittiva, di segno opposto a quello atteso.
+
+Controllo della procedura per i NeRF: `ns-export pointcloud` senza filtro degli outlier e con la
+stessa profondità attesa dà punti che distano dalla superficie completa (circa 100 milioni di punti,
+prima del campionamento) 1,1 cm in mediana per nerfacto e 1,7 cm per nerfacto-big (90° percentile 9
+e 11 cm). La differenza viene dalle viste: `ns-export` pesca pixel da tutte le 776 foto di training a
+piena risoluzione, la superficie da 97 viste a 1320 px.
 
 ### Ripetibilità
 
@@ -320,10 +351,21 @@ della distorsione non è più trascurabile e va considerata nel confronto tra le
 
 ### Scala
 
-Le distanze in metri usano la scala stimata dal GPS del drone: 2,79 m per unità del modello (IC 95%
-2,76–2,82), dalle sole posizioni orizzontali, perché la quota del GPS è molto meno precisa (residuo
-orizzontale medio 1,39 m; `python -m app.scala`). Non è ancora verificata con una misura nota
-dell'arco.
+Le distanze in metri usano una scala verificata in sito: 2,747 m per unità del modello. Il basamento
+di un pilone, misurato con il distanziometro laser sul dado (tra 1 e 2 m dal suolo), è di
+4,33 × 6,013 m. Nella nuvola densa raddrizzata si isolano i due piloni nella fascia tra 1,0 e 2,2 m
+sopra il suolo e si calcola il rettangolo di area minima di ciascuno: 1,623 × 2,162 e 1,621 × 2,148
+unità. La scala ai minimi quadrati sui due lati è 2,741 e 2,753 m per unità; dai singoli lati va da
+2,668 a 2,799 (`python -m app.scala --verifica`). Il rapporto tra i lati misurati nella nuvola
+(1,32–1,33) resta circa il 4% sotto quello in sito (1,389). Più in basso, sulla zoccolatura con le
+modanature, lo scarto è maggiore, quindi la scala ha un'incertezza dell'ordine di qualche per
+cento.
+
+Le due stime dal GPS del drone si scostano da quella verificata di +1,5% (solo posizioni
+orizzontali: 2,789, IC 95% 2,763–2,819) e di −9,4% (model_aligner sui tre assi: 2,490). La prima,
+usata nella versione 0.5.0, era quindi corretta entro l'incertezza. Come controllo secondario,
+l'altezza dell'arco misurata con la scala verificata è 15,69 m, contro i 15,60 m riportati da
+italia.it, una fonte divulgativa.
 
 ## Installazione
 
