@@ -1,0 +1,37 @@
+% Distanze rispetto alla nuvola densa della fotogrammetria (riferimento, non verità); «superficie»: punti di superficie con la stessa procedura per tutti i metodi (confronto principale); «arch only»: riquadro dei due piloni dal suolo a 15.7 m, margine 0.5 m
+\begin{tabular}{lrrrrrrrrrr}
+\toprule
+Metodo & Nuvola & Punti & Accuratezza mediana (m) & Accuratezza 90° perc. (m) & Entro 5 cm & Entro 10 cm & Entro 20 cm & Completezza mediana (m) & Completezza 90° perc. (m) & Completezza entro 10 cm \\
+\midrule
+NeRF, alta qualità (nerfacto-big) & superficie & 1000000 & 0.083 & 0.929 & 35.2\% & 55.6\% & 73.4\% & 0.052 & 0.187 & 76.6\% \\
+NeRF, alta qualità (nerfacto-big) & superficie filtrata & 999581 & 0.083 & 0.923 & 35.2\% & 55.6\% & 73.4\% & 0.052 & 0.187 & 76.6\% \\
+NeRF, alta qualità (nerfacto-big) & centri delle gaussiane & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+NeRF, alta qualità (nerfacto-big) & superficie, arch only & 840073 & 0.066 & 0.272 & 40.7\% & 63.9\% & 83.8\% & 0.047 & 0.134 & 82.4\% \\
+NeRF, alta qualità (nerfacto-big) & superficie filtrata, arch only & 840072 & 0.066 & 0.272 & 40.7\% & 63.9\% & 83.8\% & 0.047 & 0.134 & 82.4\% \\
+NeRF, alta qualità (nerfacto-big) & centri delle gaussiane, arch only & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+NeRF (nerfacto) & superficie & 1000000 & 0.045 & 0.464 & 53.3\% & 70.4\% & 82.2\% & 0.037 & 0.135 & 85.6\% \\
+NeRF (nerfacto) & superficie filtrata & 999317 & 0.045 & 0.460 & 53.3\% & 70.5\% & 82.2\% & 0.037 & 0.135 & 85.6\% \\
+NeRF (nerfacto) & centri delle gaussiane & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+NeRF (nerfacto) & superficie, arch only & 865376 & 0.037 & 0.191 & 59.9\% & 78.6\% & 90.6\% & 0.034 & 0.091 & 91.8\% \\
+NeRF (nerfacto) & superficie filtrata, arch only & 865376 & 0.037 & 0.191 & 59.9\% & 78.6\% & 90.6\% & 0.034 & 0.091 & 91.8\% \\
+NeRF (nerfacto) & centri delle gaussiane, arch only & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+Gaussian splatting (gsplat, splatfacto) & superficie & 1000000 & 0.050 & 0.497 & 50.2\% & 66.4\% & 78.8\% & 0.033 & 0.125 & 86.7\% \\
+Gaussian splatting (gsplat, splatfacto) & superficie filtrata & 998671 & 0.050 & 0.491 & 50.2\% & 66.5\% & 78.9\% & 0.033 & 0.125 & 86.7\% \\
+Gaussian splatting (gsplat, splatfacto) & centri delle gaussiane & 370891 & 0.032 & 0.285 & 58.9\% & 74.1\% & 85.8\% & 0.037 & 0.104 & 89.2\% \\
+Gaussian splatting (gsplat, splatfacto) & superficie, arch only & 869437 & 0.041 & 0.277 & 56.0\% & 73.3\% & 85.7\% & 0.031 & 0.086 & 92.4\% \\
+Gaussian splatting (gsplat, splatfacto) & superficie filtrata, arch only & 869437 & 0.041 & 0.277 & 56.0\% & 73.3\% & 85.7\% & 0.031 & 0.086 & 92.4\% \\
+Gaussian splatting (gsplat, splatfacto) & centri delle gaussiane, arch only & 308918 & 0.024 & 0.261 & 64.6\% & 77.1\% & 87.0\% & 0.035 & 0.084 & 93.6\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & superficie & 1000000 & 0.210 & 1.302 & 16.3\% & 29.9\% & 48.6\% & 0.066 & 0.251 & 68.7\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & superficie filtrata & 999722 & 0.210 & 1.299 & 16.3\% & 29.9\% & 48.6\% & 0.066 & 0.251 & 68.7\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & centri delle gaussiane & 573254 & 0.030 & 0.324 & 59.4\% & 73.1\% & 84.0\% & 0.030 & 0.083 & 92.8\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & superficie, arch only & 780804 & 0.152 & 0.532 & 20.0\% & 36.7\% & 59.6\% & 0.061 & 0.174 & 74.3\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & superficie filtrata, arch only & 780804 & 0.152 & 0.532 & 20.0\% & 36.7\% & 59.6\% & 0.061 & 0.174 & 74.3\% \\
+Gaussian splatting, alta qualità (gsplat, splatfacto-big) & centri delle gaussiane, arch only & 492793 & 0.023 & 0.307 & 64.1\% & 75.3\% & 84.8\% & 0.028 & 0.066 & 97.4\% \\
+Gaussian splatting originale (Inria) & superficie & 1000000 & 0.120 & 0.878 & 25.3\% & 44.3\% & 66.1\% & 0.049 & 0.169 & 80.6\% \\
+Gaussian splatting originale (Inria) & superficie filtrata & 999150 & 0.119 & 0.871 & 25.3\% & 44.4\% & 66.2\% & 0.049 & 0.169 & 80.6\% \\
+Gaussian splatting originale (Inria) & centri delle gaussiane & 211273 & 0.033 & 0.361 & 56.3\% & 67.4\% & 79.0\% & 0.044 & 0.126 & 85.9\% \\
+Gaussian splatting originale (Inria) & superficie, arch only & 851206 & 0.100 & 0.405 & 28.7\% & 50.1\% & 74.3\% & 0.045 & 0.113 & 87.0\% \\
+Gaussian splatting originale (Inria) & superficie filtrata, arch only & 851206 & 0.100 & 0.405 & 28.7\% & 50.1\% & 74.3\% & 0.045 & 0.113 & 87.0\% \\
+Gaussian splatting originale (Inria) & centri delle gaussiane, arch only & 185575 & 0.026 & 0.383 & 58.4\% & 66.5\% & 77.0\% & 0.042 & 0.094 & 91.3\% \\
+\bottomrule
+\end{tabular}

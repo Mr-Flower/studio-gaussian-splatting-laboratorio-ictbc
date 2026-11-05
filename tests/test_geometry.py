@@ -33,3 +33,12 @@ def test_rank_correlation_between_quality_and_geometry():
     rho, _ = geometry.spearman_quality_geometry(results, {"a": 22.0, "b": 21.0, "c": 20.0, "d": 19.0})
     assert rho == pytest.approx(-1.0)  # piu' qualita' d'immagine, distanza minore
     assert geometry.spearman_quality_geometry(results, {"a": 1.0}) is None
+
+
+def test_points_inside_the_arch_box():
+    angle = np.radians(30)
+    axes = np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
+    arch = {"axes": axes, "low": np.array([-1.0, -2.0, 0.0]), "high": np.array([1.0, 2.0, 5.0])}
+    local = np.array([[0.5, 1.5, 4.0], [0.5, 2.5, 4.0], [0.0, 0.0, 6.0], [-0.9, -1.9, 0.1]])
+    turned = np.column_stack([local[:, :2] @ axes, local[:, 2]])  # dal sistema dell'arco al raddrizzato
+    assert geometry.in_arch(turned, arch).tolist() == [True, False, False, True]

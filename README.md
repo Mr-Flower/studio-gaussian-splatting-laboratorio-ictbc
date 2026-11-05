@@ -323,11 +323,27 @@ Le due famiglie si sovrappongono: nerfacto e splatfacto sono i più vicini alla 
 le varianti più grandi (nerfacto-big, splatfacto-big) e il codice Inria mettono più punti lontani.
 Lo stesso filtro statistico per tutti (20 vicini, `std_ratio` 10, come `ns-export`) toglie meno
 dello 0,2% dei punti e non cambia le mediane. La sezione verticale del fornice (`fig6c_profilo`)
-mostra che sull'arco tutte le superfici seguono la nuvola densa (con più punti sparsi per i 3DGS); le distanze
-grandi vengono soprattutto dai dintorni (terreno, alberi, edifici), dove la nuvola densa ha pochi
-punti e i modelli ne mettono molti. I centri delle gaussiane opache, usati nella versione 0.5.0,
-restano in `tab8_geometria` come analisi secondaria: 3,0–3,3 cm in mediana, perché si concentrano
-sull'arco. Tra qualità delle immagini (PSNR corretto) e accuratezza mediana della superficie la
+mostra che sull'arco tutte le superfici seguono la nuvola densa, con più punti sparsi per i 3DGS.
+
+Ristretto all'arco («arch only» in `tab8_geometria`) il confronto vale per un riquadro di
+15,4 × 7,0 × 16,7 m. Il riquadro contiene i rettangoli dei due piloni della verifica della scala e
+va dal suolo a 15,7 m, con 0,5 m di margine; dentro stanno 1,8 milioni dei 2 milioni di punti della
+nuvola densa:
+
+| Metodo, arch only | Accuratezza: mediana | 90° percentile | entro 10 cm | Completezza: mediana | entro 10 cm |
+|---|---|---|---|---|---|
+| NeRF (nerfacto) | 3,7 cm | 19,1 cm | 78,6% | 3,4 cm | 91,8% |
+| 3DGS gsplat (splatfacto) | 4,1 cm | 27,7 cm | 73,3% | 3,1 cm | 92,4% |
+| NeRF (nerfacto-big) | 6,6 cm | 27,2 cm | 63,9% | 4,7 cm | 82,4% |
+| 3DGS Inria | 10,0 cm | 40,5 cm | 50,1% | 4,5 cm | 87,0% |
+| 3DGS gsplat (splatfacto-big) | 15,2 cm | 53,2 cm | 36,7% | 6,1 cm | 74,3% |
+
+Sull'arco le code si accorciano molto: il 90° percentile scende da 46–130 cm a 19–53 cm, quindi i
+punti più lontani stanno nei dintorni (terreno, alberi, edifici), dove la nuvola densa ha pochi
+punti. Le mediane invece cambiano poco, e l'ordine dei metodi resta lo stesso: le differenze tra i
+metodi riguardano anche il monumento, non solo l'intorno. I centri delle gaussiane opache, usati
+nella versione 0.5.0, restano in `tab8_geometria` come analisi secondaria: 3,0–3,3 cm in mediana
+sull'intero riquadro, 2,3–2,6 cm sull'arco, perché si concentrano sulle superfici più nitide. Tra qualità delle immagini (PSNR corretto) e accuratezza mediana della superficie la
 correlazione di rango sui cinque metodi è ρ = +0,80 (p = 0,10): con cinque metodi è solo
 un'indicazione descrittiva, di segno opposto a quello atteso.
 

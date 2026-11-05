@@ -6,6 +6,10 @@ errori. Si confrontano con essa, per ogni metodo:
     principale;
   - gli stessi punti dopo il filtro statistico uguale per tutti ("filtrata");
   - per il 3DGS, i centri delle gaussiane con opacita' > MIN_OPACITY ("centri"), analisi secondaria.
+Le stesse misure si ripetono ristrette all'arco ("arch only"): riquadro che contiene i rettangoli dei
+due piloni della verifica della scala (app/scala.py) e va dal suolo ad ARCH_HEIGHT_M, con ARCH_MARGIN_M
+di margine su ogni lato; accuratezza dei punti del metodo nel riquadro, completezza dei punti della
+nuvola densa nel riquadro.
 Tutto e' riportato nel sistema di COLMAP (clean.to_colmap) e ritagliato a un riquadro attorno ai
 punti della nuvola sparsa, ridotto ai percentili 2-98 su ogni asse nel sistema raddrizzato del
 volo (verticale delle camere), cosi' si escludono cielo e intorno lontano.
@@ -34,6 +38,8 @@ SAMPLE = 2_000_000
 METHOD_SAMPLE = 1_000_000  # come i punti di superficie (surface.SAMPLE)
 VARIANTS = {"superficie": "superficie", "filtrata": "superficie filtrata", "centri": "centri delle gaussiane"}
 SECTION_M = 0.05  # spessore della sezione verticale della figura fig6c
+ARCH_HEIGHT_M = 15.7  # riquadro dell'arco ("arch only"): dal suolo a questa quota sopra i piloni
+ARCH_MARGIN_M = 0.5  # margine del riquadro dell'arco su ogni lato
 THRESHOLDS_M = (0.05, 0.10, 0.20)
 SEED = 0
 
@@ -135,6 +141,8 @@ def compare(project: str, metres: Optional[float]) -> Dict:
     dense = subsample(dense_all)
     dense_tree = cKDTree(dense)
     scale = metres or 1.0
+    arch = arch_box(project, metres) if metres else None
+    dense_in_arch = in_arch(dense @ rotation.T, arch) if arch else None
     results: Dict[str, Dict] = {"_riferimento": {"punti": int(len(dense)), "metri": bool(metres),
                                                  "_dense": dense_all @ rotation.T, "_rotation": rotation}}
     groups = runs.condition_groups(runs.list_runs(project))
@@ -149,12 +157,58 @@ def compare(project: str, metres: Optional[float]) -> Dict:
                 continue
             accuracy = dense_tree.query(points, k=1, workers=-1)[0]
             completeness = cKDTree(points).query(dense, k=1, workers=-1)[0]
+            turned = points @ rotation.T
             variants[variant] = {"punti": int(len(points)), "accuratezza": distance_stats(accuracy, scale),
                                  "completezza": distance_stats(completeness, scale),
-                                 "_accuracy": accuracy * scale, "_points": points @ rotation.T}
+                                 "_accuracy": accuracy * scale, "_points": turned}
+            if arch and dense_in_arch.any():
+                mine = in_arch(turned, arch)
+                if mine.any():
+                    variants[variant]["arco"] = {"punti": int(mine.sum()),
+                                                 "accuratezza": distance_stats(accuracy[mine], scale),
+                                                 "completezza": distance_stats(completeness[dense_in_arch], scale)}
         if "superficie" in variants:
             results[key] = {**variants["superficie"], "varianti": variants}
+    if arch:
+        results["_riferimento"]["arco"] = {"punti": int(dense_in_arch.sum()),
+                                           "lati_m": [float(v * scale) for v in arch["high"] - arch["low"]]}
     return results
+
+
+def arch_box(project: str, metres: float) -> Optional[Dict]:
+    """Riquadro dell'arco nel sistema raddrizzato, dai rettangoli dei due piloni in scala.json.
+
+    Assi in pianta: lungo la facciata e in profondita' (lato lungo dei piloni); in quota dal suolo ad
+    ARCH_HEIGHT_M. Tutto allargato di ARCH_MARGIN_M. None se manca la verifica della scala.
+    """
+    from . import scala
+
+    check = (scala.load(project) or {}).get("verifica")
+    if not check or len(check.get("piloni", [])) != 2 or "centro_unita" not in check["piloni"][0]:
+        return None
+    angle = np.radians(np.mean([p["orientamento_gradi"] for p in check["piloni"]]))
+    depth = np.array([np.cos(angle), np.sin(angle)])
+    axes = np.stack([np.array([-depth[1], depth[0]]), depth])  # righe: facciata, profondita'
+    corners = []
+    for pier in check["piloni"]:
+        a = np.radians(pier["orientamento_gradi"])
+        along, across = np.array([np.cos(a), np.sin(a)]), np.array([-np.sin(a), np.cos(a)])
+        short, long = pier["lati_unita"]
+        for i in (-0.5, 0.5):
+            for j in (-0.5, 0.5):
+                corners.append(np.asarray(pier["centro_unita"]) + i * long * along + j * short * across)
+    flat = np.array(corners) @ axes.T
+    margin = ARCH_MARGIN_M / metres
+    ground = check["suolo_unita"]
+    low = np.array([*flat.min(axis=0), ground]) - margin
+    high = np.array([*flat.max(axis=0), ground + ARCH_HEIGHT_M / metres]) + margin
+    return {"axes": axes, "low": low, "high": high}
+
+
+def in_arch(turned: np.ndarray, arch: Dict) -> np.ndarray:
+    """Maschera dei punti (gia' nel sistema raddrizzato) dentro il riquadro dell'arco."""
+    local = np.column_stack([turned[:, :2] @ arch["axes"].T, turned[:, 2]])
+    return np.all((local >= arch["low"]) & (local <= arch["high"]), axis=1)
 
 
 def spearman_quality_geometry(results: Dict, quality: Dict[str, float]) -> Optional[Tuple[float, float]]:
@@ -285,28 +339,41 @@ def table(results: Dict, out: Path, numbers: dict, unit: str) -> None:
     for key, r in results.items():
         if key.startswith("_"):
             continue
-        for variant, label in VARIANTS.items():
-            v = r["varianti"].get(variant)
-            if v is None:
-                rows.append([config.METHODS[key].label, label] + ["–"] * 9)
-                continue
-            a, c = v["accuratezza"], v["completezza"]
-            rows.append([config.METHODS[key].label, label, v["punti"], _f(a["median"], 3), _f(a["p90"], 3),
-                         *[f"{a[f'within_{int(t * 100)}cm']:.1%}" for t in THRESHOLDS_M],
-                         _f(c["median"], 3), _f(c["p90"], 3), f"{c['within_10cm']:.1%}"])
-            prefix = f"geometria.{key}" if variant == "superficie" else f"geometria.{key}.{variant}"
-            numbers[f"{prefix}.punti"] = v["punti"]
-            for side, values in (("accuratezza", a), ("completezza", c)):
-                for name, value in values.items():
-                    numbers[f"{prefix}.{side}.{name}"] = value
+        for arch_only in (False, True):
+            for variant, label in VARIANTS.items():
+                v = r["varianti"].get(variant)
+                if arch_only:
+                    if v is None and not any("arco" in x for x in r["varianti"].values()):
+                        continue
+                    v = v.get("arco") if v else None
+                    label = f"{label}, arch only"
+                if v is None:
+                    rows.append([config.METHODS[key].label, label] + ["–"] * 9)
+                    continue
+                a, c = v["accuratezza"], v["completezza"]
+                rows.append([config.METHODS[key].label, label, v["punti"], _f(a["median"], 3), _f(a["p90"], 3),
+                             *[f"{a[f'within_{int(t * 100)}cm']:.1%}" for t in THRESHOLDS_M],
+                             _f(c["median"], 3), _f(c["p90"], 3), f"{c['within_10cm']:.1%}"])
+                prefix = f"geometria.{key}" if variant == "superficie" else f"geometria.{key}.{variant}"
+                if arch_only:
+                    prefix += ".arco"
+                numbers[f"{prefix}.punti"] = v["punti"]
+                for side, values in (("accuratezza", a), ("completezza", c)):
+                    for name, value in values.items():
+                        numbers[f"{prefix}.{side}.{name}"] = value
     numbers["geometria.punti_riferimento"] = results["_riferimento"]["punti"]
+    if "arco" in results["_riferimento"]:
+        numbers["geometria.arco.punti_riferimento"] = results["_riferimento"]["arco"]["punti"]
+        numbers["geometria.arco.riquadro_m"] = results["_riferimento"]["arco"]["lati_m"]
+        numbers["geometria.arco.altezza_m"], numbers["geometria.arco.margine_m"] = ARCH_HEIGHT_M, ARCH_MARGIN_M
     numbers["geometria.unita"] = unit
     write_table(out, "tab8_geometria",
                 ["Metodo", "Nuvola", "Punti", f"Accuratezza mediana ({unit})", f"Accuratezza 90° perc. ({unit})",
                  "Entro 5 cm", "Entro 10 cm", "Entro 20 cm", f"Completezza mediana ({unit})",
                  f"Completezza 90° perc. ({unit})", "Completezza entro 10 cm"], rows,
                 "Distanze rispetto alla nuvola densa della fotogrammetria (riferimento, non verità); "
-                "«superficie»: punti di superficie con la stessa procedura per tutti i metodi (confronto principale)")
+                "«superficie»: punti di superficie con la stessa procedura per tutti i metodi (confronto principale); "
+                f"«arch only»: riquadro dei due piloni dal suolo a {ARCH_HEIGHT_M} m, margine {ARCH_MARGIN_M} m")
 
 
 def surface_numbers(project: str, numbers: dict) -> None:

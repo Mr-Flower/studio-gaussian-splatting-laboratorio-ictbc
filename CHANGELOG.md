@@ -1,5 +1,16 @@
 # Registro delle modifiche
 
+## 0.6.1 — 2026-11-05
+
+- `tab8_geometria` ristretta all'arco: nuove righe «arch only» con le stesse colonne. Il riquadro
+  (15,4 × 7,0 × 16,7 m) contiene i rettangoli dei due piloni della verifica della scala e va dal
+  suolo a 15,7 m, con 0,5 m di margine. Accuratezza mediana sull'arco: nerfacto 3,7 cm, splatfacto
+  4,1, nerfacto-big 6,6, Inria 10,0, splatfacto-big 15,2. Il 90° percentile scende da 46–130 a
+  19–53 cm, mentre mediane e ordine dei metodi cambiano poco. Il README è corretto di conseguenza:
+  dai dintorni vengono le code, non le differenze tra i metodi.
+- `fig5c_esposizione` (in inglese), `fig6c_profilo` e `tab8_geometria` sono nel repository, in
+  `paper/foto/`.
+
 ## 0.6.0 — 2026-11-04 (terzo piano dell'articolo, PIANO_ARTICOLO_3.md: fasi 13, 12 e 15)
 
 ### Cambiamenti che incidono sui risultati
